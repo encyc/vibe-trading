@@ -1,0 +1,59 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+*.pyd
+.Python
+build/
+dist/
+wheels/
+*.egg-info/
+.eggs/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+vibe_trading.db
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Package managers
+uv.lock
+
+# System
+.python-version
+
+# Local config
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store
+backend/src/pi_ai/llm.yaml

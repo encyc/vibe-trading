@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibe Trading - 历史数据回测</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
+
+        * { font-family: 'Inter', sans-serif; }
+        code, pre, .mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1a1a2e; }
+        ::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #718096; }
+
+        /* 动画 */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 1; }
+            100% { transform: scale(1.3); opacity: 0; }
+        }
+        @keyframes flow-arrow {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(5px); }
+        }
+        .animate-pulse-ring { animation: pulse-ring 1.5s ease-out infinite; }
+        .animate-flow { animation: flow-arrow 1s ease-in-out infinite; }
+
+        /* Glassmorphism */
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Markdown 样式 */
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+            color: #60a5fa;
+            font-weight: 600;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        .markdown-content ul, .markdown-content ol {
+            margin-left: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .markdown-content li { margin-bottom: 0.25rem; }
+        .markdown-content strong { color: #fcd34d; }
+        .markdown-content code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+        }
+
+        /* 状态指示器 */
+        .status-running { color: #fbbf24; }
+        .status-completed { color: #34d399; }
+        .status-error { color: #f87171; }
+
+        /* Tab 样式 */
+        .tab-btn {
+            transition: all 0.2s ease;
+        }
+        .tab-btn.active {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-6 max-w-7xl">
+
+        <!-- Header -->
+        <header class="mb-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                        📊 Vibe Trading 历史数据回测
+                    </h1>
+                    <p class="text-gray-400 mt-1">多 Agent 协作量化交易系统实时监控</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div id="connection-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full glass">
+                        <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                        <span class="text-sm">连接中...</span>
+                    </div>
+                    <button onclick="resetData()" class="px-4 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm transition">
+                        🔄 重置
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- 主网格 -->
+        <div class="grid grid-cols-12 gap-4">
+
+            <!-- 左侧栏 - 配置和图表 -->
+            <div class="col-span-12 lg:col-span-8 space-y-4">
+
+                <!-- 配置信息卡片 -->
+                <div class="glass rounded-xl p-4">
+                    <div class="grid grid-cols-4 gap-4 text-center">
+                        <div>
+                            <div class="text-gray-400 text-xs mb-1">交易对</div>
+                            <div class="font-semibold text-blue-400" id="config-symbol">BTCUSDT</div>
+                        </div>
+                        <div>
+                            <div class="text-gray-400 text-xs mb-1">时间周期</div>
+                            <div class="font-semibold" id="config-interval">1m</div>
+                        </div>
+                        <div>
+                            <div class="text-gray-400 text-xs mb-1">K线数量</div>
+                            <div class="font-semibold" id="config-count">200</div>
+                        </div>
+                        <div>
+                            <div class="text-gray-400 text-xs mb-1">当前价格</div>
+                            <div class="font-semibold text-green-400" id="config-price">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- K线图表 -->
+                <div class="glass rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="font-semibold flex items-center gap-2">
+                            📈 K线价格走势
+                        </h2>
+                        <div class="flex gap-2 text-xs">
+                            <span class="px-2 py-1 rounded bg-green-500/20 text-green-400">BUY</span>
+                            <span class="px-2 py-1 rounded bg-red-500/20 text-red-400">SELL</span>
+                            <span class="px-2 py-1 rounded bg-yellow-500/20 text-yellow-400">HOLD</span>
+                        </div>
+                    </div>
+                    <div id="kline-chart" class="h-64"></div>
+                </div>
+
+                <!-- Agent 协作流程 -->
+                <div class="glass rounded-xl p-4">
+                    <h2 class="font-semibold mb-4">🔄 Agent 协作流程</h2>
+                    <div class="flex items-center justify-between">
+                        <div class="flex flex-col items-center">
+                            <div class="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center mb-2 phase-box" data-phase="analysts">
+                                <span class="text-xl">📊</span>
+                            </div>
+                            <span class="text-xs text-gray-400">分析师</span>
+                            <span class="text-xs status-text" id="phase-analysts">等待中</span>
+                        </div>
+                        <div class="flex-1 flex items-center justify-center">
+                            <div class="w-full h-0.5 bg-gray-700 relative">
+                                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flow-arrow animate-flow">→</div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <div class="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center mb-2 phase-box" data-phase="researchers">
+                                <span class="text-xl">🎭</span>
+                            </div>
+                            <span class="text-xs text-gray-400">研究员</span>
+                            <span class="text-xs status-text" id="phase-researchers">等待中</span>
+                        </div>
+                        <div class="flex-1 flex items-center justify-center">
+                            <div class="w-full h-0.5 bg-gray-700 relative">
+                                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flow-arrow animate-flow">→</div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <div class="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center mb-2 phase-box" data-phase="risk">
+                                <span class="text-xl">⚠️</span>
+                            </div>
+                            <span class="text-xs text-gray-400">风控</span>
+                            <span class="text-xs status-text" id="phase-risk">等待中</span>
+                        </div>
+                        <div class="flex-1 flex items-center justify-center">
+                            <div class="w-full h-0.5 bg-gray-700 relative">
+                                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flow-arrow animate-flow">→</div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <div class="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center mb-2 phase-box" data-phase="trader">
+                                <span class="text-xl">📋</span>
+                            </div>
+                            <span class="text-xs text-gray-400">交易员</span>
+                            <span class="text-xs status-text" id="phase-trader">等待中</span>
+                        </div>
+                        <div class="flex-1 flex items-center justify-center">
+                            <div class="w-full h-0.5 bg-gray-700 relative">
+                                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flow-arrow animate-flow">→</div>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-center">
+                            <div class="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mb-2 phase-box" data-phase="pm">
+                                <span class="text-xl">🎯</span>
+                            </div>
+                            <span class="text-xs text-gray-400">PM</span>
+                            <span class="text-xs status-text" id="phase-pm">等待中</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Agent 报告 Tab -->
+                <div class="glass rounded-xl p-4">
+                    <h2 class="font-semibold mb-3">📋 Agent 报告</h2>
+                    <div class="flex gap-2 mb-4 flex-wrap">
+                        <button onclick="showReport('analysts')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700 active" data-tab="analysts">
+                            分析师
+                        </button>
+                        <button onclick="showReport('researchers')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700" data-tab="researchers">
+                            研究员辩论
+                        </button>
+                        <button onclick="showReport('risk')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700" data-tab="risk">
+                            风控团队
+                        </button>
+                        <button onclick="showReport('trader')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700" data-tab="trader">
+                            交易方案
+                        </button>
+                        <button onclick="showReport('pm')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700" data-tab="pm">
+                            最终决策
+                        </button>
+                    </div>
+                    <div id="report-content" class="markdown-content max-h-64 overflow-y-auto text-sm text-gray-300">
+                        <p class="text-gray-500 italic">等待 Agent 报告...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧栏 - 决策历史和日志 -->
+            <div class="col-span-12 lg:col-span-4 space-y-4">
+
+                <!-- 决策统计 -->
+                <div class="glass rounded-xl p-4">
+                    <h2 class="font-semibold mb-3">📊 决策统计</h2>
+                    <div class="grid grid-cols-3 gap-2 text-center">
+                        <div class="bg-green-500/10 rounded-lg p-2">
+                            <div class="text-2xl font-bold text-green-400" id="stat-buy">0</div>
+                            <div class="text-xs text-gray-400">买入</div>
+                        </div>
+                        <div class="bg-yellow-500/10 rounded-lg p-2">
+                            <div class="text-2xl font-bold text-yellow-400" id="stat-hold">0</div>
+                            <div class="text-xs text-gray-400">观望</div>
+                        </div>
+                        <div class="bg-red-500/10 rounded-lg p-2">
+                            <div class="text-2xl font-bold text-red-400" id="stat-sell">0</div>
+                            <div class="text-xs text-gray-400">卖出</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 决策历史 -->
+                <div class="glass rounded-xl p-4">
+                    <h2 class="font-semibold mb-3">📜 决策历史</h2>
+                    <div id="decision-list" class="space-y-2 max-h-48 overflow-y-auto">
+                        <p class="text-gray-500 text-sm italic">暂无决策记录</p>
+                    </div>
+                </div>
+
+                <!-- 实时日志 -->
+                <div class="glass rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="font-semibold">🔧 实时日志</h2>
+                        <button onclick="toggleLogs()" class="text-xs text-gray-400 hover:text-white">折叠</button>
+                    </div>
+                    <div id="log-container" class="max-h-64 overflow-y-auto text-xs mono space-y-1">
+                        <p class="text-gray-500">等待日志...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态
+        let ws = null;
+        let klineData = [];
+        let decisions = [];
+        let agentReports = {};
+        let currentTab = 'analysts';
+        let klineChart = null;
+
+        // 初始化 K线图表（蜡烛图）
+        function initKlineChart() {
+            klineChart = echarts.init(document.getElementById('kline-chart'));
+            klineChart.setOption({
+                grid: { left: 10, right: 60, top: 10, bottom: 20 },
+                xAxis: {
+                    type: 'category',
+                    data: [],
+                    axisLine: { lineStyle: { color: '#4a5568' } },
+                    axisLabel: { color: '#9ca3af', fontSize: 10 }
+                },
+                yAxis: {
+                    type: 'value',
+                    scale: true,
+                    axisLine: { lineStyle: { color: '#4a5568' } },
+                    splitLine: { lineStyle: { color: '#2d3748' } },
+                    axisLabel: { color: '#9ca3af', fontSize: 10 }
+                },
+                dataZoom: [
+                    { type: 'inside', start: 50, end: 100 },
+                    { show: true, type: 'slider', top: '90%', start: 50, end: 100 }
+                ],
+                series: [{
+                    type: 'candlestick',
+                    data: [],
+                    itemStyle: {
+                        color: '#34d399',      // 涨 - 绿色
+                        color0: '#f87171',     // 跌 - 红色
+                        borderColor: '#34d399',
+                        borderColor0: '#f87171'
+                    },
+                    markPoint: {
+                        data: [],
+                        symbol: 'pin',
+                        symbolSize: 30
+                    }
+                }]
+            });
+        }
+
+        // WebSocket 连接
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8000/ws');
+
+            ws.onopen = () => {
+                updateConnectionStatus(true);
+                console.log('WebSocket connected');
+            };
+
+            ws.onclose = () => {
+                updateConnectionStatus(false);
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleMessage(msg);
+            };
+        }
+
+        // 处理消息
+        function handleMessage(msg) {
+            switch(msg.type) {
+                case 'init':
+                    klineData = msg.data.klines || [];
+                    decisions = msg.data.decisions || [];
+                    agentReports = msg.data.agent_reports || {};
+                    updateAll();
+                    break;
+                case 'kline':
+                    klineData.push(msg.data);
+                    updateKlineChart();
+                    updateConfigPrice(msg.data.close);
+                    break;
+                case 'decision':
+                    decisions.push(msg.data);
+                    updateDecisionList();
+                    updateStats();
+                    break;
+                case 'log':
+                    addLog(msg.data);
+                    break;
+                case 'phase':
+                    updatePhaseStatus(msg.data);
+                    break;
+                case 'report':
+                    if (!agentReports[msg.data.phase]) agentReports[msg.data.phase] = {};
+                    agentReports[msg.data.phase][msg.data.agent] = msg.data.content;
+                    if (currentTab === msg.data.phase || (currentTab === 'analysts' && msg.data.phase === '')) {
+                        showReport(currentTab);
+                    }
+                    break;
+                case 'reset':
+                    klineData = [];
+                    decisions = [];
+                    agentReports = {};
+                    updateAll();
+                    break;
+            }
+        }
+
+        // 更新所有显示
+        function updateAll() {
+            updateKlineChart();
+            updateDecisionList();
+            updateStats();
+            showReport(currentTab);
+        }
+
+        // 更新 K线图表
+        function updateKlineChart() {
+            if (!klineChart || klineData.length === 0) return;
+
+            // 格式: [open, close, low, high]
+            const candleData = klineData.map(k => [k.open, k.close, k.low, k.high]);
+            const times = klineData.map(k => {
+                const date = new Date(k.time);
+                return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            });
+
+            // 构建决策标记点
+            const markPoints = decisions.map(d => {
+                const idx = klineData.findIndex(k => k.time === d.time);
+                if (idx === -1) return null;
+                return {
+                    name: d.decision,
+                    coord: [idx, d.close],
+                    value: d.decision === 'HOLD' ? '○' : (d.decision.includes('BUY') ? '↑' : '↓'),
+                    itemStyle: {
+                        color: d.decision === 'HOLD' ? '#fbbf24' : (d.decision.includes('BUY') ? '#34d399' : '#f87171')
+                    }
+                };
+            }).filter(p => p !== null);
+
+            klineChart.setOption({
+                xAxis: { data: times },
+                series: [{
+                    data: candleData,
+                    markPoint: {
+                        data: markPoints
+                    }
+                }]
+            });
+        }
+
+        // 更新配置价格
+        function updateConfigPrice(price) {
+            document.getElementById('config-price').textContent = '$' + price.toFixed(2);
+        }
+
+        // 更新决策列表
+        function updateDecisionList() {
+            const container = document.getElementById('decision-list');
+            if (decisions.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm italic">暂无决策记录</p>';
+                return;
+            }
+
+            container.innerHTML = decisions.map(d => {
+                const colorClass = d.decision === 'HOLD' ? 'yellow' : (d.decision.includes('BUY') ? 'green' : 'red');
+                return `
+                    <div class="bg-gray-800/50 rounded-lg p-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs text-gray-400">#${d.index}</span>
+                            <span class="text-xs text-${colorClass}-400 font-semibold">${d.decision}</span>
+                        </div>
+                        <div class="text-sm">${d.close ? '$' + d.close.toFixed(2) : '--'}</div>
+                        <div class="text-xs text-gray-500 truncate">${d.rationale?.substring(0, 50) || ''}</div>
+                    </div>
+                `;
+            }).reverse().join('');
+        }
+
+        // 更新统计
+        function updateStats() {
+            const buyCount = decisions.filter(d => d.decision.includes('BUY')).length;
+            const sellCount = decisions.filter(d => d.decision.includes('SELL')).length;
+            const holdCount = decisions.filter(d => d.decision === 'HOLD').length;
+
+            document.getElementById('stat-buy').textContent = buyCount;
+            document.getElementById('stat-sell').textContent = sellCount;
+            document.getElementById('stat-hold').textContent = holdCount;
+        }
+
+        // 添加日志
+        function addLog(log) {
+            const container = document.getElementById('log-container');
+            const levelColors = { info: 'text-blue-400', success: 'text-green-400', warning: 'text-yellow-400', error: 'text-red-400' };
+            const tag = log.tag ? `[${log.tag}] ` : '';
+            const time = log.timestamp ? log.timestamp.substring(11, 19) : '';
+
+            const logEntry = document.createElement('div');
+            logEntry.className = levelColors[log.level] || 'text-gray-400';
+            logEntry.innerHTML = `<span class="text-gray-600">${time}</span> ${tag}${log.message}`;
+
+            container.appendChild(logEntry);
+            container.scrollTop = container.scrollHeight;
+
+            // 限制日志数量
+            while (container.children.length > 100) {
+                container.removeChild(container.firstChild);
+            }
+        }
+
+        // 更新阶段状态
+        function updatePhaseStatus(data) {
+            const phaseMap = {
+                'analysts': 'phase-analysts',
+                'researchers': 'phase-researchers',
+                'risk': 'phase-risk',
+                'trader': 'phase-trader',
+                'pm': 'phase-pm'
+            };
+
+            Object.keys(phaseMap).forEach(key => {
+                const statusEl = document.getElementById(phaseMap[key]);
+                const boxEl = document.querySelector(`.phase-box[data-phase="${key}"]`);
+
+                if (key === data.phase) {
+                    if (data.status === 'running') {
+                        statusEl.textContent = '运行中...';
+                        statusEl.className = 'text-xs status-running';
+                        boxEl.classList.add('animate-pulse-ring');
+                    } else if (data.status === 'completed') {
+                        statusEl.textContent = '完成';
+                        statusEl.className = 'text-xs status-completed';
+                        boxEl.classList.remove('animate-pulse-ring');
+                        boxEl.classList.add('bg-green-500/30');
+                    }
+                }
+            });
+        }
+
+        // 显示报告
+        function showReport(tab) {
+            currentTab = tab;
+
+            // 更新 tab 样式
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.tab === tab) btn.classList.add('active');
+            });
+
+            const container = document.getElementById('report-content');
+            let content = '';
+
+            const reports = agentReports[tab] || agentReports[''] || {};
+
+            if (Object.keys(reports).length === 0) {
+                container.innerHTML = '<p class="text-gray-500 italic">暂无报告</p>';
+                return;
+            }
+
+            for (const [agent, report] of Object.entries(reports)) {
+                content += `### ${agent}\n\n${marked.parse(report)}\n\n---\n\n`;
+            }
+
+            container.innerHTML = content || '<p class="text-gray-500 italic">暂无报告</p>';
+        }
+
+        // 更新连接状态
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connection-status');
+            const dot = statusEl.querySelector('span:first-child');
+            const text = statusEl.querySelector('span:last-child');
+
+            if (connected) {
+                dot.className = 'w-2 h-2 rounded-full bg-green-400';
+                text.textContent = '已连接';
+            } else {
+                dot.className = 'w-2 h-2 rounded-full bg-red-400 animate-pulse';
+                text.textContent = '连接中...';
+            }
+        }
+
+        // 重置数据
+        async function resetData() {
+            try {
+                await fetch('/api/reset', { method: 'POST' });
+                document.getElementById('log-container').innerHTML = '<p class="text-gray-500">已重置</p>';
+            } catch (e) {
+                console.error('Reset failed:', e);
+            }
+        }
+
+        // 折叠日志
+        let logsExpanded = true;
+        function toggleLogs() {
+            const container = document.getElementById('log-container');
+            logsExpanded = !logsExpanded;
+            container.style.maxHeight = logsExpanded ? '16rem' : '3rem';
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            initKlineChart();
+            connectWebSocket();
+        });
+
+        // 窗口大小变化时重新调整图表
+        window.addEventListener('resize', () => {
+            if (klineChart) klineChart.resize();
+        });
+    </script>
+</body>
+</html>
