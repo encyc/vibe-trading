@@ -51,22 +51,23 @@ class TraderAgent:
     async def initialize(self, tool_context: ToolContext, enable_streaming: bool = True) -> None:
         """初始化 Agent"""
         self._tool_context = tool_context
-        settings = get_settings()
 
-        model = get_model_from_config(settings.llm_config_name)
+        # ========== 改进: 使用create_trading_agent以获得tools支持 ==========
+        from vibe_trading.agents.agent_factory import create_trading_agent
+        from vibe_trading.config.agent_config import AgentConfig
 
-        self._agent = Agent(
-            AgentOptions(
-                initial_state={
-                    "system_prompt": TRADER_PROMPT,
-                    "model": model,
-                }
-            )
+        config = AgentConfig(
+            name="Trader",
+            role="trader",
+            temperature=0.3,
         )
 
-        # 设置流式打印
-        if enable_streaming:
-            setup_streaming(self._agent, "Trader", "magenta")
+        self._agent = await create_trading_agent(
+            config=config,
+            tool_context=tool_context,
+            enable_streaming=enable_streaming,
+            agent_name="Trader",
+        )
 
         logger.info(f"Trader Agent initialized for {tool_context.symbol}")
 
@@ -310,9 +311,23 @@ class PortfolioManagerAgent:
         """初始化 Agent"""
         self._tool_context = tool_context
         self._memory = memory
-        settings = get_settings()
 
+        # ========== 改进: 使用模型路由器和工具 ==========
+        settings = get_settings()
         model = get_model_from_config(settings.llm_config_name)
+
+        # 获取模型路由器
+        from pi_ai.model_router import create_model_router_from_config
+        model_router = create_model_router_from_config()
+
+        # 获取tools - 使用角色特定的工具集合
+        agent_tools = []
+        try:
+            from vibe_trading.agents.agent_tools import get_tools_for_agent
+            agent_tools = get_tools_for_agent("portfolio_manager")
+            logger.info(f"Loaded {len(agent_tools)} tools for Portfolio Manager")
+        except Exception as e:
+            logger.warning(f"Could not load agent tools: {e}")
 
         # 如果有记忆系统，可以在这里检索相关经验
         memory_context = ""
@@ -328,11 +343,14 @@ class PortfolioManagerAgent:
         if memory_context:
             system_prompt += "\n\n" + memory_context
 
+        # 创建Agent并设置tools和model_router
         self._agent = Agent(
             AgentOptions(
                 initial_state={
                     "system_prompt": system_prompt,
                     "model": model,
+                    "model_router": model_router,  # ========== 添加模型路由器 ==========
+                    "tools": agent_tools,
                 }
             )
         )

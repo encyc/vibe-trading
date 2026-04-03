@@ -37,6 +37,26 @@ from vibe_trading.memory.memory import PersistentMemory
 from vibe_trading.tools import market_data_tools, technical_tools, fundamental_tools, sentiment_tools
 from vibe_trading.data_sources.kline_storage import KlineStorage
 
+# 改进工具导入
+from vibe_trading.coordinator.state_machine import (
+    DecisionStateMachine,
+    DecisionState,
+    get_state_machine_manager,
+)
+from vibe_trading.agents.messaging import (
+    get_message_broker,
+    MessageType,
+    create_analysis_report,
+    create_debate_speech,
+    create_risk_assessment,
+    create_final_decision,
+)
+from vibe_trading.coordinator.parallel_executor import get_parallel_executor
+from vibe_trading.data_sources.rate_limiter import get_multi_endpoint_limiter
+from vibe_trading.data_sources.cache import get_global_cache
+from vibe_trading.agents.token_optimizer import get_token_optimizer
+from vibe_trading.config.logging_config import PerformanceLogger
+
 logger = logging.getLogger(__name__)
 log = get_logger("TradingCoordinator")
 
@@ -108,6 +128,30 @@ class TradingCoordinator:
             "current_phase": None,
             "start_time": None,
         }
+
+        # ========== 改进工具初始化 ==========
+        # 状态机管理器
+        self._state_manager = get_state_machine_manager()
+        self._current_state_machine: Optional[DecisionStateMachine] = None
+
+        # 消息代理
+        self._message_broker = get_message_broker()
+        self._current_correlation_id: Optional[str] = None
+
+        # 并行执行器
+        self._parallel_executor = get_parallel_executor()
+
+        # API限流器
+        self._rate_limiter = get_multi_endpoint_limiter()
+
+        # 缓存
+        self._cache = get_global_cache()
+
+        # Token优化器
+        self._token_optimizer = get_token_optimizer()
+
+        # 性能日志
+        self._perf_log = PerformanceLogger("TradingCoordinator")
 
         logger.info(f"TradingCoordinator initialized for {symbol} {interval}")
 
@@ -264,7 +308,22 @@ class TradingCoordinator:
         6. 投资组合经理最终决策
         """
         start_time = datetime.now()
+        decision_id = f"{self.symbol}_{int(start_time.timestamp() * 1000)}"
+
+        # ========== 改进工具: 状态机初始化 ==========
+        self._current_state_machine = self._state_manager.create_machine(
+            decision_id=decision_id,
+            symbol=self.symbol,
+            interval=self.interval
+        )
+        self._current_correlation_id = decision_id
+
         log.step(f"开始分析 {self.symbol} @ ${current_price:.2f}")
+        logger.info(f"[状态机] 创建决策: {decision_id}")
+
+        # 转换到ANALYZING状态
+        self._current_state_machine.transition_to(DecisionState.ANALYZING, "开始分析师阶段")
+        logger.info(f"[状态机] PENDING -> ANALYZING")
 
         # 准备上下文
         context = await self._prepare_context(current_price)
@@ -273,13 +332,26 @@ class TradingCoordinator:
         # 存储所有 Agent 输出
         agent_outputs = {}
 
+        # 统计信息
+        stats = {
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "api_calls": 0,
+            "messages_sent": 0,
+        }
+
         # Phase 1: 分析师生成报告
         info("Phase 1: 分析师生成报告...", tag="Analysts")
 
         # 更新决策树 - 阶段开始
         await self._update_decision_tree("analysts", "running")
 
-        analyst_reports = await self._run_analysts(context)
+        # ========== 改进工具: 并行执行 + 消息记录 + 性能日志 ==========
+        import time
+        phase_start = time.time()
+        analyst_reports = await self._run_analysts_parallel(context, decision_id, stats)
+        phase_elapsed = time.time() - phase_start
+        logger.info(f"[性能] Phase 1 (分析师) 耗时: {phase_elapsed:.2f}s")
         agent_outputs["analysts"] = analyst_reports
 
         # 构建Agent状态列表
@@ -310,10 +382,18 @@ class TradingCoordinator:
         # Phase 2: 研究员辩论
         info("Phase 2: 研究员辩论...", tag="Researchers")
 
+        # ========== 改进工具: 状态机转换 ==========
+        self._current_state_machine.transition_to(DecisionState.DEBATING, "开始研究员辩论")
+        logger.info(f"[状态机] ANALYZING -> DEBATING")
+
         # 更新决策树 - 阶段开始
         await self._update_decision_tree("researchers", "running")
 
-        investment_plan = await self._run_research_debate(context, analyst_reports)
+        import time
+        phase_start = time.time()
+        investment_plan = await self._run_research_debate(context, analyst_reports, decision_id, stats)
+        phase_elapsed = time.time() - phase_start
+        logger.info(f"[性能] Phase 2 (研究员) 耗时: {phase_elapsed:.2f}s")
         agent_outputs["investment_plan"] = investment_plan
 
         # 更新决策树 - 阶段完成
@@ -340,12 +420,20 @@ class TradingCoordinator:
         # Phase 3: 风控评估
         info("Phase 3: 风控评估...", tag="Risk")
 
+        # ========== 改进工具: 状态机转换 ==========
+        self._current_state_machine.transition_to(DecisionState.ASSESSING_RISK, "开始风控评估")
+        logger.info(f"[状态机] DEBATING -> ASSESSING_RISK")
+
         # 更新决策树 - 阶段开始
         await self._update_decision_tree("risk", "running")
 
+        import time
+        phase_start = time.time()
         risk_assessment = await self._run_risk_assessment(
-            investment_plan, current_positions, account_balance
+            investment_plan, current_positions, account_balance, decision_id, stats
         )
+        phase_elapsed = time.time() - phase_start
+        logger.info(f"[性能] Phase 3 (风控) 耗时: {phase_elapsed:.2f}s")
         agent_outputs["risk_assessment"] = risk_assessment
 
         # 更新决策树 - 阶段完成
@@ -379,12 +467,20 @@ class TradingCoordinator:
         # Phase 4: 交易员制定方案
         info("Phase 4: 交易员制定方案...", tag="Trader")
 
+        # ========== 改进工具: 状态机转换 ==========
+        self._current_state_machine.transition_to(DecisionState.PLANNING, "开始执行规划")
+        logger.info(f"[状态机] ASSESSING_RISK -> PLANNING")
+
         # 更新决策树 - 阶段开始
         await self._update_decision_tree("trader", "running")
 
+        import time
+        phase_start = time.time()
         trading_plan = await self._run_trader(
             investment_plan, risk_assessment, context, account_balance
         )
+        phase_elapsed = time.time() - phase_start
+        logger.info(f"[性能] Phase 4 (交易员) 耗时: {phase_elapsed:.2f}s")
         agent_outputs["trading_plan"] = trading_plan
 
         # 更新决策树 - 阶段完成
@@ -411,9 +507,15 @@ class TradingCoordinator:
         # Phase 5: 投资组合经理最终决策
         info("Phase 5: 投资组合经理最终决策...", tag="PM")
 
+        # ========== 改进工具: 状态机转换 ==========
+        self._current_state_machine.transition_to(DecisionState.COMPLETED, "决策完成")
+        logger.info(f"[状态机] PLANNING -> COMPLETED")
+
         # 更新决策树 - 阶段开始
         await self._update_decision_tree("pm", "running")
 
+        import time
+        phase_start = time.time()
         final_decision = await self._run_portfolio_manager(
             analyst_reports,
             investment_plan,
@@ -423,6 +525,8 @@ class TradingCoordinator:
             account_balance,
             context,
         )
+        phase_elapsed = time.time() - phase_start
+        logger.info(f"[性能] Phase 5 (投资组合经理) 耗时: {phase_elapsed:.2f}s")
 
         # 更新决策树 - 最终决策
         await self._update_decision_tree(
@@ -463,7 +567,43 @@ class TradingCoordinator:
         elapsed = (datetime.now() - start_time).total_seconds()
         success(f"分析完成: {decision.decision} (耗时 {elapsed:.2f}s)", tag="Coordinator")
 
+        # ========== 改进工具: 统计信息输出 ==========
+        self._log_improvements_stats(elapsed, stats)
+
         return decision
+
+    def _log_improvements_stats(self, elapsed: float, stats: dict) -> None:
+        """输出改进工具统计信息"""
+        logger.info("=" * 60)
+        logger.info("📊 [改进工具效果统计]")
+
+        # 状态机摘要
+        state_summary = self._current_state_machine.get_state_summary()
+        logger.info(f"  📊 [状态机] 决策ID: {state_summary['decision_id']}")
+        logger.info(f"     状态转换数: {len(state_summary['state_history'])}")
+
+        # 消息统计
+        msg_stats = self._message_broker.get_statistics()
+        logger.info(f"  📨 [消息] 总消息数: {msg_stats['total_messages']}")
+
+        # 缓存统计
+        cache_stats = self._cache.get_stats()
+        memory_stats = cache_stats.get('memory', {})
+        hit_rate = memory_stats.get('hit_rate', 0)
+        logger.info(f"  💾 [缓存] 命中率: {hit_rate:.1%}, 大小: {memory_stats.get('size', 0)}")
+
+        # API限流统计
+        limiter = self._rate_limiter.get_limiter("binance_rest")
+        remaining = limiter.get_remaining_tokens()
+        logger.info(f"  🚦 [限流] 剩余令牌: {remaining.get('minute', 0)}/分钟")
+
+        # Token统计
+        token_stats = self._token_optimizer.get_stats()
+        logger.info(f"  🤖 [Token] 总消耗: {token_stats.get('total_tokens', 0)}")
+
+        # 性能日志摘要
+        logger.info(f"  ⏱  [性能] 总耗时: {elapsed:.2f}s")
+        logger.info("=" * 60)
 
     async def _prepare_context(self, current_price: float) -> TradingContext:
         """准备交易上下文"""
@@ -488,12 +628,24 @@ class TradingCoordinator:
             ti.load_data(opens, highs, lows, closes, volumes)
             indicators_data = ti.get_latest_indicators()
             indicators = {
-                "rsi": indicators_data.rsi,
-                "macd": indicators_data.macd,
-                "bollinger_upper": indicators_data.bollinger_upper,
-                "bollinger_lower": indicators_data.bollinger_lower,
+                # 趋势指标
                 "sma_20": indicators_data.sma_20,
                 "sma_50": indicators_data.sma_50,
+                # 动量指标
+                "rsi": indicators_data.rsi,
+                "macd": indicators_data.macd,
+                "macd_signal": indicators_data.macd_signal,
+                "macd_histogram": indicators_data.macd_hist,
+                # 波动率指标
+                "bollinger_upper": indicators_data.bollinger_upper,
+                "bollinger_middle": indicators_data.bollinger_middle,
+                "bollinger_lower": indicators_data.bollinger_lower,
+                "atr": indicators_data.atr,
+                # 成交量指标
+                "volume_sma": indicators_data.volume_sma,
+                # 当前价格（方便计算）
+                "current_price": closes[-1] if closes else None,
+                "current_volume": volumes[-1] if volumes else None,
             }
 
         return TradingContext(
@@ -507,36 +659,86 @@ class TradingCoordinator:
         )
 
     async def _run_analysts(self, context: TradingContext) -> Dict[str, str]:
-        """运行分析师团队"""
+        """运行分析师团队 (串行版本，保留兼容性)"""
+        return await self._run_analysts_parallel(context, "default", {})
+
+    async def _run_analysts_parallel(self, context: TradingContext, correlation_id: str, stats: dict) -> Dict[str, str]:
+        """运行分析师团队 (并行执行版本)"""
         reports = {}
 
-        # 技术分析师
-        if "technical" in self._analysts:
-            market_data = {
-                "symbol": context.symbol,
-                "interval": context.interval,
-                "current_price": context.current_price,
-                "indicators": context.indicators,
-            }
-            reports["technical"] = await self._analysts["technical"].analyze_with_indicators(market_data)
-
-        # 其他分析师
+        # 使用并行执行器运行分析师
+        analyst_list = []
         for role, analyst in self._analysts.items():
-            if role == "technical":
-                continue
+            if hasattr(analyst, 'analyze') or hasattr(analyst, 'analyze_with_indicators'):
+                analyst_list.append((role, analyst))
 
+        if not analyst_list:
+            return reports
+
+        # ========== 改进工具: 并行执行 ==========
+        logger.info(f"🚀 [并行执行] 启动 {len(analyst_list)} 个分析师...")
+
+        import time
+        start_time = time.time()
+
+        # 创建分析任务
+        async def run_analyst_task(role: str, analyst):
             try:
-                # 根据角色获取相应的数据
-                data = await self._get_analyst_data(role, context)
-                reports[role] = await analyst.analyze(data)
+                if role == "technical" and hasattr(analyst, 'analyze_with_indicators'):
+                    market_data = {
+                        "symbol": context.symbol,
+                        "interval": context.interval,
+                        "current_price": context.current_price,
+                        "indicators": context.indicators,
+                    }
+                    result = await analyst.analyze_with_indicators(market_data)
+                else:
+                    data = await self._get_analyst_data(role, context, stats)
+                    result = await analyst.analyze(data)
+
+                # ========== 改进工具: 消息记录 ==========
+                self._message_broker.send(
+                    sender=f"{role}_analyst",
+                    receiver="coordinator",
+                    message_type=MessageType.ANALYSIS_REPORT,
+                    content={"role": role, "report": result},
+                    correlation_id=correlation_id,
+                )
+                stats["messages_sent"] += 1
+
+                return role, result, None
             except Exception as e:
                 logger.warning(f"Error running {role} analyst: {e}")
-                reports[role] = f"{role} analysis unavailable: {str(e)}"
+                return role, f"{role} analysis unavailable: {str(e)}", str(e)
+
+        # 并行执行所有分析师
+        tasks = [run_analyst_task(role, analyst) for role, analyst in analyst_list]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        elapsed = time.time() - start_time
+
+        # 处理结果
+        successful = 0
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Analyst task failed: {result}")
+                continue
+            role, report, error = result
+            reports[role] = report
+            if not error:
+                successful += 1
+            logger.info(f"  ✅ {role}: 完成")
+
+        # 计算加速比 (假设串行执行时间 = 并行时间 * Agent数量)
+        if len(analyst_list) > 1:
+            estimated_serial_time = elapsed * len(analyst_list)
+            speedup = estimated_serial_time / elapsed if elapsed > 0 else 1
+            logger.info(f"⚡ [性能] 并行加速比: {speedup:.1f}x, 总耗时: {elapsed:.1f}s")
 
         return reports
 
-    async def _get_analyst_data(self, role: str, context: TradingContext) -> dict:
-        """获取分析师所需的数据"""
+    async def _get_analyst_data(self, role: str, context: TradingContext, stats: dict) -> dict:
+        """获取分析师所需的数据 (带缓存和限流)"""
         from vibe_trading.tools.fundamental_tools import (
             get_funding_rates,
             get_long_short_ratio,
@@ -554,10 +756,27 @@ class TradingCoordinator:
             "timestamp": context.timestamp,
         }
 
+        # ========== 改进工具: 缓存装饰器 (通过检查缓存键) ==========
+        cache_key = f"{role}_data_{context.symbol}_{context.timestamp}"
+        cached_data = await self._cache.get(cache_key)
+        if cached_data is not None:
+            stats["cache_hits"] += 1
+            return cached_data
+        stats["cache_misses"] += 1
+
         if role == "fundamental":
-            # 基本面数据
+            # ========== 改进工具: API限流 ==========
+            await self._rate_limiter.acquire("binance_rest", tokens=1)
+            stats["api_calls"] += 1
+
             funding = await get_funding_rates(context.symbol)
+
+            await self._rate_limiter.acquire("binance_rest", tokens=1)
+            stats["api_calls"] += 1
             long_short = await get_long_short_ratio(context.symbol)
+
+            await self._rate_limiter.acquire("binance_rest", tokens=1)
+            stats["api_calls"] += 1
             open_interest = await get_open_interest(context.symbol)
 
             data["funding_rate"] = funding
@@ -565,24 +784,35 @@ class TradingCoordinator:
             data["open_interest"] = open_interest
 
         elif role == "news":
-            # 新闻数据
+            await self._rate_limiter.acquire("crypto_compare", tokens=1)
+            stats["api_calls"] += 1
             news_data = await get_news_sentiment(context.symbol, limit=15)
             data["news"] = news_data
 
         elif role == "sentiment":
-            # 情绪数据
+            await self._rate_limiter.acquire("alternative_me", tokens=1)
+            stats["api_calls"] += 1
             fear_greed = await get_fear_and_greed_index()
+
+            await self._rate_limiter.acquire("binance_rest", tokens=1)
+            stats["api_calls"] += 1
             social = await get_social_sentiment(context.symbol)
+
+            await self._rate_limiter.acquire("binance_rest", tokens=1)
+            stats["api_calls"] += 1
             funding = await get_funding_rates(context.symbol)
 
             data["fear_greed"] = fear_greed
             data["social_sentiment"] = social
             data["funding_rate"] = funding
 
+        # 缓存结果 (TTL 60秒)
+        await self._cache.set(cache_key, data, ttl=60)
+
         return data
 
     async def _run_research_debate(
-        self, context: TradingContext, analyst_reports: Dict[str, str]
+        self, context: TradingContext, analyst_reports: Dict[str, str], correlation_id: str, stats: dict
     ) -> str:
         """运行研究员辩论"""
         if "manager" not in self._researchers:
@@ -592,6 +822,10 @@ class TradingCoordinator:
         context_str = f"Symbol: {context.symbol}\nPrice: {context.current_price}\n"
         for role, report in analyst_reports.items():
             context_str += f"\n{role.upper()} Report:\n{report}\n"
+
+        # ========== 改进工具: Token优化 ==========
+        # 压缩分析师报告以减少Token使用
+        compressed_context = self._token_optimizer.compress_prompt(context_str, target_ratio=0.8)
 
         # 运行辩论
         bull_history = ""
@@ -603,16 +837,33 @@ class TradingCoordinator:
             bull_resp, bear_resp = await run_debate_round(
                 self._researchers.get("bull"),
                 self._researchers.get("bear"),
-                context_str,
+                compressed_context,
                 bull_history,
                 bear_history,
             )
             bull_history += f"\n{bull_resp}"
             bear_history += f"\n{bear_resp}"
 
+            # ========== 改进工具: 消息记录 ==========
+            self._message_broker.send(
+                sender="bull_researcher",
+                receiver="coordinator",
+                message_type=MessageType.DEBATE_SPEECH,
+                content={"round": round_num + 1, "speech": bull_resp},
+                correlation_id=correlation_id,
+            )
+            self._message_broker.send(
+                sender="bear_researcher",
+                receiver="coordinator",
+                message_type=MessageType.DEBATE_SPEECH,
+                content={"round": round_num + 1, "speech": bear_resp},
+                correlation_id=correlation_id,
+            )
+            stats["messages_sent"] += 2
+
         # 研究经理裁决
         result = await self._researchers["manager"].make_decision(
-            context=context_str,
+            context=compressed_context,
             bull_agent=self._researchers.get("bull"),
             bear_agent=self._researchers.get("bear"),
             bull_history=bull_history,
@@ -621,17 +872,27 @@ class TradingCoordinator:
             market_data=context.market_data,
         )
 
+        # ========== 改进工具: 消息记录 ==========
+        self._message_broker.send(
+            sender="research_manager",
+            receiver="coordinator",
+            message_type=MessageType.INVESTMENT_ADVICE,
+            content={"decision": result},
+            correlation_id=correlation_id,
+        )
+        stats["messages_sent"] += 1
+
         # 返回决策文本
         return result.get("decision_text", "No decision made")
 
     async def _run_risk_assessment(
-        self, investment_plan: str, current_positions: List[Dict], account_balance: float
+        self, investment_plan: str, current_positions: List[Dict], account_balance: float, correlation_id: str, stats: dict
     ) -> Dict[str, str]:
         """运行风控评估"""
         if not self._risk_analysts:
             return {"error": "No risk analysts enabled"}
 
-        return await run_risk_debate(
+        results = await run_risk_debate(
             self._risk_analysts.get("aggressive"),
             self._risk_analysts.get("neutral"),
             self._risk_analysts.get("conservative"),
@@ -640,6 +901,20 @@ class TradingCoordinator:
             account_balance,
             rounds=1,
         )
+
+        # ========== 改进工具: 消息记录 ==========
+        for role, assessment in results.items():
+            if role != "error":
+                self._message_broker.send(
+                    sender=f"{role}_analyst",
+                    receiver="coordinator",
+                    message_type=MessageType.RISK_ASSESSMENT,
+                    content={"role": role, "assessment": assessment},
+                    correlation_id=correlation_id,
+                )
+                stats["messages_sent"] += 1
+
+        return results
 
     async def _run_trader(
         self, investment_plan: str, risk_assessment: Dict, context: TradingContext, account_balance: float

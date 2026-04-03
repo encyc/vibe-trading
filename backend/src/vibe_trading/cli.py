@@ -38,6 +38,7 @@ def start(
     symbol: str = typer.Argument(..., help="Trading symbol, e.g., BTCUSDT"),
     interval: str = typer.Option("30m", help="Kline interval (1m, 5m, 15m, 30m, 1h, 4h, 1d)"),
     mode: str = typer.Option("paper", help="Trading mode: paper or live"),
+    execute: bool = typer.Option(False, help="--execute: In live mode, actually execute orders (default: print only)"),
     debate_rounds: int = typer.Option(2, help="Number of debate rounds"),
     enable_memory: bool = typer.Option(True, help="Enable memory system"),
 ):
@@ -48,25 +49,43 @@ def start(
     using the multi-agent system.
 
     Example: vibe-trade start BTCUSDT
+             vibe-trade start BTCUSDT --mode live
+             vibe-trade start BTCUSDT --mode live --execute
     """
+    # 实盘模式安全确认
+    if mode == "live":
+        if not execute:
+            console.print("[red]⚠️  Warning: Live mode (dry-run) - orders will be printed but not executed[/red]")
+            confirm = typer.confirm("Continue?")
+            if not confirm:
+                raise typer.Abort()
+        else:
+            console.print("[red]⚠️  Warning: Live mode (EXECUTE) - orders will be actually executed![/red]")
+            console.print("[red]⚠️  This will use REAL funds for trading![/red]")
+            confirm = typer.confirm("Continue?", default=False)
+            if not confirm:
+                raise typer.Abort()
+
     settings = get_settings()
     settings.trading_mode = TradingMode(mode)
     settings.debate_rounds = debate_rounds
     settings.enable_memory = enable_memory
     settings.symbols = [symbol]
     settings.interval = interval
+    settings.execute_trades = execute  # 新增
     set_settings(settings)
 
     console.print(f"[bold cyan]Starting Vibe Trading Bot[/bold cyan]")
     console.print(f"Symbol: {symbol}")
     console.print(f"Interval: {interval}")
     console.print(f"Mode: {mode.upper()}")
+    console.print(f"Execute Trades: {'Yes' if execute else 'No (print only)'}")
     console.print(f"Debate Rounds: {debate_rounds}")
     console.print(f"Memory: {'Enabled' if enable_memory else 'Disabled'}")
     console.print()
 
     # 运行交易机器人
-    asyncio.run(run_trading_bot(symbol, interval))
+    asyncio.run(run_trading_bot(symbol, interval, execute))
 
 
 @app.command()
@@ -122,7 +141,7 @@ def config(
             display_config(settings)
 
 
-async def run_trading_bot(symbol: str, interval: str):
+async def run_trading_bot(symbol: str, interval: str, execute_trades: bool = False):
     """运行交易机器人"""
     settings = get_settings()
 
@@ -146,8 +165,9 @@ async def run_trading_bot(symbol: str, interval: str):
     )
     await coordinator.initialize()
 
-    # 创建执行器
-    executor = create_executor(ExecutorTradingMode(settings.trading_mode.value))
+    # 创建执行器 (支持dry-run模式)
+    executor_mode = ExecutorTradingMode.LIVE if execute_trades else ExecutorTradingMode.PAPER
+    executor = create_executor(executor_mode, dry_run=not execute_trades)
 
     # 创建 Binance 客户端用于订阅
     binance_config = BinanceConfig.from_env(

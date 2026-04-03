@@ -136,19 +136,42 @@ async def create_trading_agent(
     """
     settings = get_settings()
 
-    # 使用 pi_ai 配置系统获取模型
+    # ========== 改进: 使用模型路由器，工具调用时使用iflow模型 ==========
+    from pi_ai.model_router import create_model_router_from_config
+
+    model_router = create_model_router_from_config()
     model = get_model_from_config(settings.llm_config_name)
 
     # 获取 System Prompt
-    system_prompt = get_agent_prompt(config.role.value)
+    system_prompt = get_agent_prompt(config.role)
 
-    # 创建 Agent
+    # ========== 改进: 添加AgentTools支持 ==========
+    from pi_agent_core import AgentTool
+
+    # 获取预定义的tools - 根据角色分配专门工具
+    agent_tools: List[AgentTool] = []
+    try:
+        from vibe_trading.agents.agent_tools import get_tools_for_agent
+
+        # 使用角色的值获取对应工具（config.role.value 或直接用 config.role）
+        role_value = config.role.value if hasattr(config.role, 'value') else config.role
+        agent_tools = get_tools_for_agent(role_value)
+        logger.info(f"Loaded {len(agent_tools)} tools for {config.name} (role: {role_value})")
+    except Exception as e:
+        logger.warning(f"Could not load agent tools: {e}")
+
+    # 添加额外的tools
+    if additional_tools:
+        agent_tools.extend(additional_tools)
+
+    # 创建 Agent（使用模型路由器）
     agent = Agent(
         AgentOptions(
             initial_state={
                 "system_prompt": system_prompt,
                 "model": model,
-                "tools": [],
+                "model_router": model_router,  # ========== 设置模型路由器 ==========
+                "tools": agent_tools,  # ========== 设置tools ==========
             }
         )
     )
@@ -156,6 +179,8 @@ async def create_trading_agent(
     # 设置流式打印
     if enable_streaming and agent_name:
         setup_streaming(agent, agent_name)
+
+    logger.info(f"Created {config.name} with {len(agent_tools)} tools")
 
     return agent
 

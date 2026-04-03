@@ -251,13 +251,14 @@ class PaperOrderExecutor(OrderExecutor):
 class BinanceOrderExecutor(OrderExecutor):
     """Binance 实盘订单执行器"""
 
-    def __init__(self, api_key: str, api_secret: str, testnet: bool = True):
+    def __init__(self, api_key: str, api_secret: str, testnet: bool = True, dry_run: bool = False):
         config = BinanceConfig(
             environment=BinanceEnvironment.TESTNET if testnet else BinanceEnvironment.MAINNET,
             api_key=api_key,
             api_secret=api_secret,
         )
         self._client = BinanceClient(config)
+        self._dry_run = dry_run  # dry-run模式：只打印订单不执行
 
     async def place_order(
         self,
@@ -270,6 +271,36 @@ class BinanceOrderExecutor(OrderExecutor):
         position_side: Optional[PositionSide] = None,
     ) -> OrderResult:
         """下单"""
+        if self._dry_run:
+            # ========== dry-run模式：只打印不执行 ==========
+            order_id = f"dryrun_{uuid.uuid4().hex[:8]}"
+            timestamp = int(datetime.now().timestamp() * 1000)
+
+            logger.info("=" * 60)
+            logger.info(f"🚨 [DRY-RUN] 订单打印 (不会实际执行)")
+            logger.info(f"  Symbol: {symbol}")
+            logger.info(f"  Side: {side.value}")
+            logger.info(f"  Type: {order_type.value}")
+            logger.info(f"  Quantity: {quantity}")
+            logger.info(f"  Price: {price}")
+            logger.info(f"  Position Side: {position_side.value if position_side else 'N/A'}")
+            logger.info("=" * 60)
+
+            return OrderResult(
+                order_id=order_id,
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                quantity=quantity,
+                price=price,
+                filled_price=price,  # dry-run假设立即成交
+                filled_quantity=quantity,
+                status="FILLED",  # dry-run假设立即成交
+                timestamp=timestamp,
+                is_paper=False,  # 不是paper，是dry-run
+            )
+
+        # 真实执行
         order = await self._client.rest.place_order(
             symbol=symbol,
             side=side,
@@ -296,6 +327,10 @@ class BinanceOrderExecutor(OrderExecutor):
 
     async def cancel_order(self, symbol: str, order_id: str) -> bool:
         """取消订单"""
+        if self._dry_run:
+            logger.info(f"🚨 [DRY-RUN] 取消订单: {order_id} (不会实际执行)")
+            return True
+
         try:
             await self._client.rest.cancel_order(symbol, order_id=int(order_id))
             return True
@@ -317,17 +352,27 @@ class BinanceOrderExecutor(OrderExecutor):
         await self._client.close()
 
 
-def create_executor(mode: TradingMode = TradingMode.PAPER) -> OrderExecutor:
-    """创建订单执行器"""
+def create_executor(mode: TradingMode = TradingMode.PAPER, dry_run: bool = False) -> OrderExecutor:
+    """创建订单执行器
+
+    Args:
+        mode: 交易模式 (PAPER 或 LIVE)
+        dry_run: 是否为dry-run模式 (仅打印订单不执行，仅适用于LIVE模式)
+    """
     settings = get_settings()
 
     if mode == TradingMode.PAPER:
         logger.info("Creating Paper Trading executor")
         return PaperOrderExecutor()
     else:
-        logger.info("Creating Binance Live executor")
+        if dry_run:
+            logger.info("Creating Binance Live executor (DRY-RUN mode - orders will be printed but not executed)")
+        else:
+            logger.info("Creating Binance Live executor (orders will be executed)")
+
         return BinanceOrderExecutor(
             api_key=settings.binance_api_key,
             api_secret=settings.binance_api_secret,
             testnet=settings.trading_mode == "paper",
+            dry_run=dry_run,
         )

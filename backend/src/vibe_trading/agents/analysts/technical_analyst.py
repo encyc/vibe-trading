@@ -32,22 +32,23 @@ class TechnicalAnalystAgent:
     async def initialize(self, tool_context: ToolContext, enable_streaming: bool = True) -> None:
         """初始化 Agent"""
         self._tool_context = tool_context
-        settings = get_settings()
 
-        model = get_model_from_config(settings.llm_config_name)
+        # ========== 改进: 使用create_trading_agent以获得tools支持 ==========
+        from vibe_trading.agents.agent_factory import create_trading_agent
+        from vibe_trading.config.agent_config import AgentConfig
 
-        self._agent = Agent(
-            AgentOptions(
-                initial_state={
-                    "system_prompt": TECHNICAL_ANALYST_PROMPT,
-                    "model": model,
-                }
-            )
+        config = AgentConfig(
+            name="Technical Analyst",
+            role="technical_analyst",
+            temperature=0.5,
         )
 
-        # 设置流式打印
-        if enable_streaming:
-            setup_streaming(self._agent, "Technical Analyst", "cyan")
+        self._agent = await create_trading_agent(
+            config=config,
+            tool_context=tool_context,
+            enable_streaming=enable_streaming,
+            agent_name="Technical Analyst",
+        )
 
         logger.info(f"Technical Analyst Agent initialized for {tool_context.symbol}")
 
@@ -69,6 +70,41 @@ Provide your technical analysis including:
 """
 
         # 执行分析
+        await self._agent.prompt(prompt)
+
+        # 获取响应
+        messages = self._agent.state.messages
+        if messages:
+            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
+            if last_assistant:
+                content = last_assistant[-1].content
+                if isinstance(content, list):
+                    return "".join(getattr(c, "text", str(c)) for c in content)
+                return str(content)
+
+        return "Analysis failed - no response from agent"
+
+    async def analyze_with_tools(self) -> str:
+        """使用工具执行技术分析（不预取数据，让Agent自己调用工具）"""
+        if not self._agent:
+            raise RuntimeError("Agent not initialized. Call initialize() first.")
+
+        symbol = self._tool_context.symbol
+        interval = self._tool_context.interval
+
+        prompt = f"""请对 {symbol} ({interval}) 进行技术分析。
+
+请使用可用工具获取以下数据并分析：
+1. 当前价格 (get_current_price)
+2. 24小时行情 (get_24hr_ticker)
+
+提供技术分析报告，包括：
+1. 趋势方向 (强烈上涨/上涨/中性/下跌/强烈下跌)
+2. 关键技术信号
+3. 支撑和阻力位
+4. 短期展望 (4-8小时)
+"""
+
         await self._agent.prompt(prompt)
 
         # 获取响应

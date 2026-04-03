@@ -11,7 +11,15 @@ from vibe_trading.data_sources.binance_client import BinanceClient, KlineInterva
 from vibe_trading.data_sources.kline_storage import KlineStorage, KlineQuery
 from vibe_trading.data_sources.technical_indicators import TechnicalIndicators
 
+# 改进工具导入
+from vibe_trading.data_sources.cache import cached, get_global_cache
+from vibe_trading.data_sources.rate_limiter import get_multi_endpoint_limiter
+
 logger = logging.getLogger(__name__)
+
+# 获取全局实例
+_cache = get_global_cache()
+_rate_limiter = get_multi_endpoint_limiter()
 
 
 # =============================================================================
@@ -105,6 +113,7 @@ async def get_kline_data(
     return result
 
 
+@cached(ttl=5, key_prefix="price", cache_instance=_cache)
 async def get_current_price(symbol: str, storage: Optional[KlineStorage] = None) -> dict:
     """
     获取当前价格
@@ -125,6 +134,9 @@ async def get_current_price(symbol: str, storage: Optional[KlineStorage] = None)
                 "volume": kline.volume,
             }
 
+    # ========== 改进工具: API限流 ==========
+    await _rate_limiter.acquire("binance_rest", tokens=1)
+
     # 从 API 获取
     client = BinanceClient()
     try:
@@ -142,6 +154,7 @@ async def get_current_price(symbol: str, storage: Optional[KlineStorage] = None)
         await client.close()
 
 
+@cached(ttl=30, key_prefix="ticker_24h", cache_instance=_cache)
 async def get_24hr_ticker(symbol: str) -> dict:
     """
     获取24小时价格变动数据
@@ -152,6 +165,9 @@ async def get_24hr_ticker(symbol: str) -> dict:
     Returns:
         24小时 ticker 数据
     """
+    # ========== 改进工具: API限流 ==========
+    await _rate_limiter.acquire("binance_rest", tokens=1)
+
     client = BinanceClient()
     try:
         ticker = await client.rest._request(
@@ -174,6 +190,7 @@ async def get_24hr_ticker(symbol: str) -> dict:
         await client.close()
 
 
+@cached(ttl=10, key_prefix="orderbook", cache_instance=_cache)
 async def get_order_book(symbol: str, limit: int = 20) -> dict:
     """
     获取订单簿数据
@@ -185,6 +202,9 @@ async def get_order_book(symbol: str, limit: int = 20) -> dict:
     Returns:
         订单簿数据
     """
+    # ========== 改进工具: API限流 ==========
+    await _rate_limiter.acquire("binance_rest", tokens=1)
+
     client = BinanceClient()
     try:
         data = await client.rest._request(
@@ -202,6 +222,7 @@ async def get_order_book(symbol: str, limit: int = 20) -> dict:
         await client.close()
 
 
+@cached(ttl=60, key_prefix="funding_rate", cache_instance=_cache)
 async def get_funding_rate(symbol: str) -> dict:
     """
     获取资金费率
@@ -212,6 +233,9 @@ async def get_funding_rate(symbol: str) -> dict:
     Returns:
         资金费率数据
     """
+    # ========== 改进工具: API限流 ==========
+    await _rate_limiter.acquire("binance_rest", tokens=1)
+
     client = BinanceClient()
     try:
         data = await client.rest._request(
@@ -230,6 +254,7 @@ async def get_funding_rate(symbol: str) -> dict:
         await client.close()
 
 
+@cached(ttl=60, key_prefix="open_interest", cache_instance=_cache)
 async def get_open_interest(symbol: str) -> dict:
     """
     获取持仓量
@@ -240,6 +265,9 @@ async def get_open_interest(symbol: str) -> dict:
     Returns:
         持仓量数据
     """
+    # ========== 改进工具: API限流 ==========
+    await _rate_limiter.acquire("binance_rest", tokens=1)
+
     client = BinanceClient()
     try:
         data = await client.rest._request(

@@ -1,211 +1,315 @@
 """
-Vibe Trading - 多Agent协作量化交易系统
+Vibe Trading - 主入口
 
-主入口文件，负责启动交易系统。
+支持实盘和纸面交易模式
 """
 import asyncio
 import logging
 import signal
 import sys
-from pathlib import Path
+from enum import Enum
+from typing import List, Optional
 
+import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
+
+from pi_logger import get_logger, configure_logging, info, success, warning
 
 from vibe_trading.config.settings import get_settings
-from vibe_trading.config.binance_config import BinanceConfig
 from vibe_trading.config.agent_config import AgentTeamConfig
-from vibe_trading.data_sources.binance_client import (
-    BinanceClient,
-    KlineInterval,
-)
-from vibe_trading.data_sources.kline_storage import KlineStorage
-from vibe_trading.memory.memory import BM25Memory
 from vibe_trading.coordinator.trading_coordinator import TradingCoordinator
+from vibe_trading.websocket_manager import get_websocket_manager
+from vibe_trading.data_sources.kline_storage import KlineStorage
+from vibe_trading.memory.memory import PersistentMemory
+from vibe_trading.execution.order_executor import create_executor, TradingMode
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s [%(name)s]: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+# 初始化
+app = typer.Typer(help="Vibe Trading - AI驱动的量化交易系统")
 console = Console()
+logger = get_logger("main")
 
 
-class VibeTradingApp:
-    """Vibe Trading 应用主类"""
+class TradingMode(str, Enum):
+    """交易模式"""
+    PAPER = "paper"  # 纸面交易
+    LIVE = "live"    # 实盘交易
 
-    def __init__(self):
-        self.settings = get_settings()
-        self.binance_config: BinanceConfig | None = None
-        self.binance_client: BinanceClient | None = None
-        self.storage: KlineStorage | None = None
-        self.memory: BM25Memory | None = None
-        self.coordinator: TradingCoordinator | None = None
+
+class TradingBot:
+    """交易机器人"""
+
+    def __init__(
+        self,
+        symbols: List[str],
+        interval: str,
+        mode: TradingMode,
+        execute_trades: bool = False,
+    ):
+        self.symbols = symbols
+        self.interval = interval
+        self.mode = mode
+        self.execute_trades = execute_trades
+
+        # 组件
+        self.coordinators: dict = {}
+        self.storage: Optional[KlineStorage] = None
+        self.memory: Optional[PersistentMemory] = None
+        self.ws_manager = None
+
+        # 运行状态
         self._running = False
-        self._kline_task: asyncio.Task | None = None
 
     async def initialize(self) -> None:
-        """初始化所有组件"""
-        console.print(Panel("[bold cyan]初始化 Vibe Trading 系统[/bold cyan]"))
+        """初始化交易机器人"""
+        settings = get_settings()
 
-        # 1. 初始化 Binance 配置
-        self.binance_config = BinanceConfig.from_env()
-        console.print(f"  ✓ Binance 环境: {self.binance_config.environment.value}")
-
-        # 2. 初始化 Binance 客户端
-        self.binance_client = BinanceClient(self.binance_config)
-        console.print(f"  ✓ Binance 客户端已创建")
-
-        # 3. 初始化数据库
+        # 初始化存储
         self.storage = KlineStorage()
         await self.storage.init()
-        console.print(f"  ✓ 数据库已初始化")
 
-        # 4. 初始化记忆系统
-        if self.settings.enable_memory:
-            self.memory = BM25Memory()
-            console.print(f"  ✓ 记忆系统已启用")
+        # 初始化记忆系统
+        self.memory = PersistentMemory(storage_dir=settings.memory_storage_dir)
+        await self.memory.init()
 
-        # 5. 初始化 Agent 团队配置
-        agent_config = AgentTeamConfig()
-        enabled_count = sum(
-            1 for cfg in agent_config.get_all_configs().values() if cfg.enabled
+        # 初始化WebSocket管理器
+        self.ws_manager = get_websocket_manager(
+            api_key=settings.binance_api_key if self.mode == TradingMode.LIVE else None,
+            api_secret=settings.binance_api_secret if self.mode == TradingMode.LIVE else None,
+            testnet=self.mode == TradingMode.PAPER,
         )
-        console.print(f"  ✓ Agent 团队: {enabled_count} 个角色已启用")
 
-        # 6. 为每个交易对创建协调器
-        self.coordinators: list[TradingCoordinator] = []
-        for symbol in self.settings.symbols:
-            coord = TradingCoordinator(
+        # 为每个symbol创建协调器
+        agent_config = AgentTeamConfig()
+        for symbol in self.symbols:
+            coordinator = TradingCoordinator(
                 symbol=symbol,
-                interval=self.settings.interval,
+                interval=self.interval,
+                storage=self.storage,
                 memory=self.memory,
                 agent_config=agent_config,
             )
-            await coord.initialize()
-            self.coordinators.append(coord)
-            console.print(f"  ✓ 协调器已初始化: {symbol}")
+            await coordinator.initialize()
+            self.coordinators[symbol] = coordinator
 
-        console.print()
-        console.print("[green]✅ 系统初始化完成！[/green]")
-        console.print()
+        success(f"交易机器人初始化完成: {len(self.symbols)} 个交易对", tag="Bot")
 
-    async def _on_kline(self, kline) -> None:
-        """处理新 K线数据"""
-        try:
-            # 存储到数据库
-            await self.storage.store_kline(kline)
-
-            # 触发对应交易对的协调器
-            for coord in self.coordinators:
-                if coord.symbol == kline.symbol:
-                    await coord.on_new_kline(kline)
-                    break
-
-        except Exception as e:
-            logger.error(f"处理 K线数据失败: {e}", exc_info=True)
-
-    async def run(self) -> None:
-        """运行主循环"""
+    async def start(self) -> None:
+        """启动交易机器人"""
         self._running = True
 
-        # 设置信号处理
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
+        # 显示启动信息
+        self._display_startup_info()
 
-        console.print(Panel("[bold yellow]开始交易循环[/bold yellow]"))
-        console.print(f"  交易模式: {self.settings.trading_mode.value}")
-        console.print(f"  交易品种: {', '.join(self.settings.symbols)}")
-        console.print(f"  K线周期: {self.settings.interval}")
-        console.print()
-        console.print("[dim]按 Ctrl+C 停止运行[/dim]")
-        console.print()
-
-        # 订阅 K线数据
-        for symbol in self.settings.symbols:
-            self.binance_client.ws.subscribe_kline(
+        # 订阅K线流
+        for symbol in self.symbols:
+            await self.ws_manager.subscribe_kline(
                 symbol=symbol,
-                interval=KlineInterval(self.settings.interval),
+                interval=self.interval,
                 callback=self._on_kline,
             )
-            logger.info(f"已订阅 {symbol} {self.settings.interval} K线")
 
-        # 启动 WebSocket 监听
+        # 启动WebSocket
+        await self.ws_manager.start()
+
+        success("交易机器人已启动，等待K线数据...", tag="Bot")
+
+        # 保持运行
         try:
-            await self.binance_client.ws.start()
-        except Exception as e:
-            logger.error(f"WebSocket 错误: {e}")
+            while self._running:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            info("收到停止信号")
             await self.stop()
 
-    async def stop(self) -> None:
-        """停止系统"""
-        if not self._running:
-            return
+    async def _on_kline(self, kline) -> None:
+        """新K线到达时的回调"""
+        try:
+            symbol = kline.symbol
+            if symbol not in self.coordinators:
+                return
+
+            coordinator = self.coordinators[symbol]
+
+            # 执行分析和决策
+            await coordinator.on_new_kline(kline)
+
+        except Exception as e:
+            logger.error(f"处理K线失败: {e}", exc_info=True)
+
+    def _display_startup_info(self) -> None:
+        """显示启动信息"""
+        mode_color = "green" if self.mode == TradingMode.PAPER else "red"
+        mode_text = "📝 纸面交易模式" if self.mode == TradingMode.PAPER else "⚠️  实盘交易模式"
 
         console.print()
-        console.print("[yellow]正在停止系统...[/yellow]")
+        console.print(Panel(
+            f"[bold {mode_color}]{mode_text}[/bold {mode_color}]\n\n"
+            f"交易对: {', '.join(self.symbols)}\n"
+            f"K线周期: {self.interval}\n"
+            f"执行交易: {'是' if self.execute_trades else '否 (仅打印)'}",
+            title="[bold cyan]🤖 Vibe Trading[/bold cyan]",
+            border_style="cyan",
+        ))
 
+        if self.mode == TradingMode.LIVE and not self.execute_trades:
+            console.print("[yellow]⚠️  警告: 实盘模式但未启用--execute，订单将被打印但不会真正执行[/yellow]")
+
+        console.print()
+
+    async def stop(self) -> None:
+        """停止交易机器人"""
+        info("正在停止交易机器人...")
         self._running = False
 
-        # 断开 WebSocket
-        if self.binance_client:
-            await self.binance_client.close()
+        # 停止WebSocket
+        if self.ws_manager:
+            await self.ws_manager.stop()
 
-        # 关闭数据库
+        # 关闭存储
         if self.storage:
             await self.storage.close()
 
-        console.print("[green]✅ 系统已停止[/green]")
+        # 关闭记忆系统
+        if self.memory:
+            await self.memory.close()
 
-    async def fetch_historical_klines(self) -> None:
-        """获取历史 K线数据用于初始化"""
-        console.print(Panel("[bold cyan]获取历史 K线 数据[/bold cyan]"))
+        success("交易机器人已停止")
 
-        for symbol in self.settings.symbols:
-            try:
-                klines = await self.binance_client.rest.get_klines(
-                    symbol=symbol,
-                    interval=KlineInterval(self.settings.interval),
-                    limit=200,
-                )
 
-                # 转换并存储
-                from vibe_trading.data_sources.binance_client import Kline
-                kline_objects = []
-                for k in klines:
-                    kline = Kline.from_rest(k)
-                    kline.symbol = symbol
-                    kline.interval = self.settings.interval
-                    kline_objects.append(kline)
+@app.command()
+def start(
+    symbols: List[str] = typer.Argument(..., help="交易对符号，如 BTCUSDT ETHUSDT"),
+    interval: str = typer.Option("30m", help="K线间隔 (1m, 5m, 15m, 30m, 1h, 4h, 1d)"),
+    mode: str = typer.Option("paper", help="交易模式: paper (纸面) 或 live (实盘)"),
+    execute: bool = typer.Option(False, help="--execute: 实盘模式下真正执行订单"),
+    log_level: str = typer.Option("INFO", help="日志级别: DEBUG, INFO, WARNING, ERROR"),
+):
+    """
+    启动交易机器人
 
-                await self.storage.store_klines(kline_objects)
-                console.print(f"  ✓ {symbol}: 已加载 {len(kline_objects)} 条历史数据")
+    订阅实时K线数据，每当新K线完成时触发Agent决策流程。
 
-            except Exception as e:
-                logger.error(f"获取 {symbol} 历史数据失败: {e}")
+    示例:
+        # 纸面交易
+        python -m vibe_trading.main start BTCUSDT
+
+        # 实盘交易 (仅打印订单)
+        python -m vibe_trading.main start BTCUSDT --mode live
+
+        # 实盘交易 (真正执行)
+        python -m vibe_trading.main start BTCUSDT --mode live --execute
+
+        # 多交易对
+        python -m vibe_trading.main start BTCUSDT ETHUSDT SOLUSDT
+    """
+    # 配置日志
+    configure_logging(log_level=log_level, json_output=False, enable_file_logging=True)
+
+    # 验证交易模式
+    trading_mode = TradingMode.PAPER
+    if mode == "live":
+        trading_mode = TradingMode.LIVE
+        # 实盘模式二次确认
+        if not execute:
+            console.print("[red]⚠️  警告: 实盘交易模式 (dry-run) - 订单将被打印但不会执行[/red]")
+            confirm = typer.confirm("确定要继续吗？")
+            if not confirm:
+                raise typer.Abort()
+        else:
+            console.print("[red]⚠️  警告: 实盘交易模式 (EXECUTE) - 订单将被真正执行！[/red]")
+            console.print("[red]⚠️  这将使用真实资金进行交易！[/red]")
+            confirm = typer.confirm("确定要继续吗？", default=False)
+            if not confirm:
+                raise typer.Abort()
+
+    # 创建交易机器人
+    bot = TradingBot(
+        symbols=symbols,
+        interval=interval,
+        mode=trading_mode,
+        execute_trades=execute,
+    )
+
+    # 信号处理
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # 运行
+    try:
+        loop.run_until_complete(bot.initialize())
+        loop.run_until_complete(bot.start())
+    except KeyboardInterrupt:
+        info("收到键盘中断")
+    finally:
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        loop.run_until_complete(bot.stop())
+        loop.close()
+
+
+@app.command()
+def analyze(
+    symbol: str = typer.Argument(..., help="交易对符号"),
+    interval: str = typer.Option("30m", help="K线间隔"),
+):
+    """
+    运行单次分析
+
+    获取当前市场数据并执行一次完整的Agent决策流程
+    """
+    configure_logging(log_level="INFO", json_output=False)
+
+    async def run_analysis():
+        storage = KlineStorage()
+        await storage.init()
+
+        coordinator = TradingCoordinator(
+            symbol=symbol,
+            interval=interval,
+            storage=storage,
+        )
+        await coordinator.initialize()
+
+        # 获取当前价格
+        from vibe_trading.tools.market_data_tools import get_current_price
+        current_price = await get_current_price(symbol)
+
+        # 执行分析
+        decision = await coordinator.analyze_and_decide(
+            current_price=current_price,
+            account_balance=10000.0,
+        )
 
         console.print()
+        console.print(Panel(
+            f"[bold]决策: {decision.decision}[/bold]\n\n{decision.rationale[:300]}...",
+            title=f"[bold cyan]{symbol} 分析结果[/bold cyan]",
+        ))
+
+        await storage.close()
+
+    asyncio.run(run_analysis())
 
 
-async def main() -> None:
-    """主函数"""
-    app = VibeTradingApp()
+@app.command()
+def status():
+    """显示系统状态"""
+    settings = get_settings()
 
-    try:
-        await app.initialize()
-        await app.fetch_historical_klines()
-        await app.run()
-    except KeyboardInterrupt:
-        await app.stop()
-    except Exception as e:
-        console.print(f"[red]错误: {e}[/red]")
-        logger.exception("主程序异常")
-        await app.stop()
-        sys.exit(1)
+    table = Table(title="Vibe Trading 系统状态")
+    table.add_column("项目", style="cyan")
+    table.add_column("值", style="green")
+
+    table.add_row("交易模式", "纸面交易 (Paper Trading)")
+    table.add_row("Binance API", "✅ 已配置" if settings.binance_api_key else "❌ 未配置")
+    table.add_row("存储目录", str(settings.storage_dir))
+    table.add_row("记忆目录", str(settings.memory_storage_dir))
+
+    console.print(table)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    app()

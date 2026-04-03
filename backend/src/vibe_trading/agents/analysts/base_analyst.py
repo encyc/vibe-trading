@@ -42,19 +42,14 @@ class BaseAnalystAgent:
     async def initialize(self, tool_context: ToolContext) -> None:
         """初始化 Agent"""
         self._tool_context = tool_context
-        settings = get_settings()
 
-        model = get_model_from_config(settings.llm_config_name)
+        # ========== 改进: 使用create_trading_agent以获得tools支持 ==========
+        from vibe_trading.agents.agent_factory import create_trading_agent
 
-        system_prompt = ANALYST_PROMPTS[self.config.role]
-
-        self._agent = Agent(
-            AgentOptions(
-                initial_state={
-                    "system_prompt": system_prompt,
-                    "model": model,
-                }
-            )
+        self._agent = await create_trading_agent(
+            config=self.config,
+            tool_context=tool_context,
+            enable_streaming=False,
         )
 
         logger.info(f"{self.config.name} Agent initialized for {tool_context.symbol}")
@@ -68,6 +63,84 @@ class BaseAnalystAgent:
         prompt = self._build_prompt(context_data)
 
         # 执行分析
+        await self._agent.prompt(prompt)
+
+        # 获取响应
+        messages = self._agent.state.messages
+        if messages:
+            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
+            if last_assistant:
+                content = last_assistant[-1].content
+                if isinstance(content, list):
+                    return "".join(getattr(c, "text", str(c)) for c in content)
+                return str(content)
+
+        return "Analysis failed - no response from agent"
+
+    async def analyze_with_tools(self) -> str:
+        """使用工具执行分析（不预取数据，让Agent自己调用工具）
+
+        这是让Agent真正使用pi_agent_core工具框架的方法。
+        Agent会根据需要调用get_current_price、get_fear_and_greed_index等工具。
+        """
+        if not self._agent:
+            raise RuntimeError("Agent not initialized. Call initialize() first.")
+
+        symbol = self._tool_context.symbol
+        interval = self._tool_context.interval
+
+        # 构建简单提示 - 不包含预取的数据
+        # Agent需要自己调用工具获取数据
+        if self.config.role == AgentRole.FUNDAMENTAL_ANALYST:
+            prompt = f"""请对 {symbol} ({interval}) 进行基本面分析。
+
+请使用可用工具获取以下数据并分析：
+1. 资金费率 (get_funding_rate)
+2. 多空比例 (get_long_short_ratio)
+3. 持仓量 (get_open_interest)
+
+提供你的基本面分析报告，包括：
+1. 链上指标评估 (1-5分)
+2. 关键基本面因素
+3. 需要监控的风险因素
+4. 中长期展望 (用中文输出)
+"""
+        elif self.config.role == AgentRole.NEWS_ANALYST:
+            prompt = f"""请分析影响 {symbol} 的新闻和宏观因素。
+
+请使用可用工具获取：
+1. 最新新闻情绪 (get_news_sentiment)
+2. 恐惧贪婪指数 (get_fear_and_greed_index)
+
+提供新闻分析报告，包括：
+1. 重要新闻摘要
+2. 潜在影响评估 (正面/负面/中性)
+3. 预期市场反应
+4. 需要关注的事件
+"""
+        elif self.config.role == AgentRole.SENTIMENT_ANALYST:
+            prompt = f"""请分析 {symbol} 的市场情绪。
+
+请使用可用工具获取：
+1. 恐惧贪婪指数 (get_fear_and_greed_index)
+2. 新闻情绪 (get_news_sentiment)
+3. 资金费率 (get_funding_rate)
+4. 多空比例 (get_long_short_ratio)
+5. 持仓量 (get_open_interest)
+
+提供情绪分析报告，包括：
+1. 当前情绪状态 (极度恐惧/恐惧/中性/贪婪/极度贪婪)
+2. 情绪趋势 (升温/降温/稳定)
+3. 极端信号警告
+4. 情绪反转可能性
+"""
+        else:
+            prompt = f"""请分析 {symbol} ({interval}) 的市场状况。
+
+使用可用工具获取相关数据，并提供综合分析。
+"""
+
+        # 执行分析 - Agent会根据需要调用工具
         await self._agent.prompt(prompt)
 
         # 获取响应

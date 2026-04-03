@@ -43,22 +43,16 @@ class RiskAnalystAgent:
     async def initialize(self, tool_context: ToolContext, enable_streaming: bool = True) -> None:
         """初始化 Agent"""
         self._tool_context = tool_context
-        settings = get_settings()
 
-        model = get_model_from_config(settings.llm_config_name)
+        # ========== 改进: 使用create_trading_agent以获得tools支持 ==========
+        from vibe_trading.agents.agent_factory import create_trading_agent
 
-        self._agent = Agent(
-            AgentOptions(
-                initial_state={
-                    "system_prompt": self._system_prompt,
-                    "model": model,
-                }
-            )
+        self._agent = await create_trading_agent(
+            config=self.config,
+            tool_context=tool_context,
+            enable_streaming=enable_streaming,
+            agent_name=self.config.name,
         )
-
-        # 设置流式打印
-        if enable_streaming:
-            setup_streaming(self._agent, self.config.name, "yellow")
 
         logger.info(f"{self.config.name} Agent initialized for {tool_context.symbol}")
 
