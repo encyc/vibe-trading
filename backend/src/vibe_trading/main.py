@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from pi_logger import get_logger, configure_logging, info, success, warning
+from pi_logger import get_logger, configure, info, success, warning
 
 from vibe_trading.config.settings import get_settings
 from vibe_trading.config.agent_config import AgentTeamConfig
@@ -205,7 +205,7 @@ def start(
         python -m vibe_trading.main start BTCUSDT ETHUSDT SOLUSDT
     """
     # 配置日志
-    configure_logging(log_level=log_level, json_output=False, enable_file_logging=True)
+    configure(log_level=log_level, json_output=False, enable_file_logging=True)
 
     # 验证交易模式
     trading_mode = TradingMode.PAPER
@@ -260,7 +260,7 @@ def analyze(
 
     获取当前市场数据并执行一次完整的Agent决策流程
     """
-    configure_logging(log_level="INFO", json_output=False)
+    configure(log_level="INFO", json_output=False)
 
     async def run_analysis():
         storage = KlineStorage()
