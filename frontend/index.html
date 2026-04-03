@@ -71,6 +71,88 @@
             background: linear-gradient(135deg, #3b82f6, #8b5cf6);
             color: white;
         }
+
+        /* 决策树样式 */
+        .decision-tree {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .tree-node {
+            position: relative;
+            padding: 8px 12px;
+            margin: 4px 0;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        .tree-node:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .tree-node.pending {
+            border-left: 3px solid #6b7280;
+            opacity: 0.6;
+        }
+        .tree-node.running {
+            border-left: 3px solid #fbbf24;
+            background: rgba(251, 191, 36, 0.1);
+        }
+        .tree-node.completed {
+            border-left: 3px solid #34d399;
+        }
+        .tree-node.error {
+            border-left: 3px solid #f87171;
+            background: rgba(248, 113, 113, 0.1);
+        }
+        .tree-label {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        .tree-meta {
+            font-size: 11px;
+            color: #9ca3af;
+        }
+        .tree-content {
+            margin-top: 6px;
+            padding-left: 12px;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .tree-children {
+            margin-left: 20px;
+            padding-left: 12px;
+            border-left: 1px dashed rgba(255, 255, 255, 0.2);
+        }
+        .tree-agent {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            margin: 2px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        .tree-agent.success {
+            background: rgba(52, 211, 153, 0.2);
+            color: #34d399;
+        }
+        .tree-agent.running {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .final-decision {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+        .final-decision.buy { background: rgba(52, 211, 153, 0.2); color: #34d399; }
+        .final-decision.sell { background: rgba(248, 113, 113, 0.2); color: #f87171; }
+        .final-decision.hold { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
     </style>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen">
@@ -202,6 +284,14 @@
                     </div>
                 </div>
 
+                <!-- 决策树可视化 -->
+                <div class="glass rounded-xl p-4">
+                    <h2 class="font-semibold mb-4">🌳 决策树可视化</h2>
+                    <div id="decision-tree" class="min-h-48">
+                        <div class="text-gray-500 text-sm italic text-center py-8">等待决策数据...</div>
+                    </div>
+                </div>
+
                 <!-- Agent 报告 Tab -->
                 <div class="glass rounded-xl p-4">
                     <h2 class="font-semibold mb-3">📋 Agent 报告</h2>
@@ -280,6 +370,7 @@
         let agentReports = {};
         let currentTab = 'analysts';
         let klineChart = null;
+        let decisionTree = null;  // 决策树数据
 
         // 初始化 K线图表（蜡烛图）
         function initKlineChart() {
@@ -377,7 +468,12 @@
                     klineData = [];
                     decisions = [];
                     agentReports = {};
+                    decisionTree = null;
                     updateAll();
+                    break;
+                case 'decision_tree':
+                    decisionTree = msg.data;
+                    updateDecisionTree();
                     break;
             }
         }
@@ -572,6 +668,77 @@
             const container = document.getElementById('log-container');
             logsExpanded = !logsExpanded;
             container.style.maxHeight = logsExpanded ? '16rem' : '3rem';
+        }
+
+        // 更新决策树可视化
+        function updateDecisionTree() {
+            const container = document.getElementById('decision-tree');
+            if (!decisionTree || !decisionTree.root) {
+                container.innerHTML = '<div class="text-gray-500 text-sm italic text-center py-8">等待决策数据...</div>';
+                return;
+            }
+
+            container.innerHTML = '<div class="decision-tree">' + renderTreeNode(decisionTree.root) + '</div>';
+        }
+
+        // 渲染树节点
+        function renderTreeNode(node, depth = 0) {
+            if (!node) return '';
+
+            const statusClass = node.status || 'pending';
+            const hasChildren = node.children && node.children.length > 0;
+
+            let html = `
+                <div class="tree-node ${statusClass}">
+                    <div class="tree-label">${node.label || node.phase}</div>
+            `;
+
+            // 添加元数据
+            if (node.duration) {
+                html += `<div class="tree-meta">⏱ ${node.duration.toFixed(2)}s</div>`;
+            }
+            if (node.agents) {
+                html += '<div class="tree-meta">';
+                node.agents.forEach(agent => {
+                    const agentStatus = agent.status === 'completed' ? 'success' : 'running';
+                    html += `<span class="tree-agent ${agentStatus}">${agent.name}</span>`;
+                });
+                html += '</div>';
+            }
+
+            // 添加内容
+            if (node.content) {
+                html += `<div class="tree-content">${node.content}</div>`;
+            }
+
+            // 添加最终决策
+            if (node.decision) {
+                const decisionClass = node.decision.toLowerCase().includes('buy') ? 'buy' :
+                                      node.decision.toLowerCase().includes('sell') ? 'sell' : 'hold';
+                html += `<div class="final-decision ${decisionClass}">🎯 ${node.decision}</div>`;
+            }
+
+            html += '</div>';
+
+            // 递归渲染子节点
+            if (hasChildren) {
+                html += '<div class="tree-children">';
+                node.children.forEach(child => {
+                    html += renderTreeNode(child, depth + 1);
+                });
+                html += '</div>';
+            }
+
+            return html;
+        }
+
+        // 折叠/展开节点
+        function toggleNode(nodeId) {
+            const nodeEl = document.getElementById(`node-${nodeId}`);
+            const childrenEl = document.getElementById(`children-${nodeId}`);
+            if (nodeEl && childrenEl) {
+                childrenEl.style.display = childrenEl.style.display === 'none' ? 'block' : 'none';
+            }
         }
 
         // 初始化

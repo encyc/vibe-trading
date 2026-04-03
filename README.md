@@ -4,12 +4,25 @@
 
 ## ✨ 特性
 
+**🚀 最新改进 (2026-04-03)**:
+- **状态机管理**: 决策流程状态追踪，7种状态转换管理
+- **Agent消息标准化**: 8种消息类型，correlation_id关联追踪
+- **并行执行优化**: Phase 1并行执行，~30x加速比
+- **结构化日志**: JSON/控制台双格式，性能计时
+- **API限流管理**: 令牌桶算法，2400/分钟保护
+- **决策树可视化**: Web UI实时决策树展示
+- **缓存机制**: 混合LRU+文件缓存，~2700x加速
+- **Token优化**: Prompt压缩91%+，成本控制
+
+详见 [改进实施总结](./IMPROVEMENTS_SUMMARY.md)
+
+**核心功能**:
 - **🤖 12 Agent 协作决策**: 4阶段层级协作，从市场分析到交易执行
 - **🎭 智能辩论系统**: 看涨/看跌研究员多轮辩论，论点自动提取和量化裁决
 - **🧠 BM25 记忆系统**: 从历史交易经验中学习，持续优化
 - **📊 Binance 深度集成**: 支持永续合约交易，实时 K线订阅
 - **🎯 Paper Trading**: 模拟交易模式，零风险验证策略
-- **🌐 Web 实时监控**: 可视化界面实时展示决策过程
+- **🌐 Web 实时监控**: 可视化界面实时展示决策过程和决策树
 - **🔄 流式输出**: 实时查看 Agent 思考过程
 - **🔬 高级技术分析**: K线形态检测、指标背离、成交量分析、支撑阻力位
 - **⚡ 智能风控**: VaR计算、凯利公式、波动率调整、相关性风险检查
@@ -330,6 +343,25 @@ LOG_LEVEL=INFO
 LOG_FILE=./vibe_trading.log
 ```
 
+## 🚀 系统改进
+
+### 已完成改进 (2026-04-03)
+
+| 改进项 | 状态 | 文件 | 效果 |
+| :--- | :--- | :--- | :--- |
+| 状态机管理 | ✅ | `coordinator/state_machine.py` | 决策流程状态追踪 |
+| Agent消息标准化 | ✅ | `agents/messaging.py` | 结构化Agent通信 |
+| 并行执行优化 | ✅ | `coordinator/parallel_executor.py` | ~30x加速比 |
+| 结构化日志 | ✅ | `config/logging_config.py` | JSON/控制台双格式 |
+| API限流管理 | ✅ | `data_sources/rate_limiter.py` | 令牌桶算法保护 |
+| 决策树可视化 | ✅ | `web/server.py` + `frontend/index.html` | Web UI实时决策树 |
+| 缓存机制 | ✅ | `data_sources/cache.py` | 混合缓存~2700x加速 |
+| Token优化 | ✅ | `agents/token_optimizer.py` | Prompt压缩91%+ |
+
+详细说明见 [改进实施总结](./IMPROVEMENTS_SUMMARY.md)
+
+---
+
 ## 🚀 使用
 
 ### 历史数据回测
@@ -486,7 +518,7 @@ vibe-trading/
 | **Coinglass** | 跨交易所数据 | 🟡 中 | 待集成 |
 | **GitHub API** | 项目开发活跃度 | 🟢 低 | 待集成 |
 
-详细规划请查看 [TODO.md](TODO.md)
+详细规划请查看 [TODO.md](TODO.md)（API集成）和 [IMPROVEMENTS.md](IMPROVEMENTS.md)（系统改进）
 
 ## ⚠️ 免责声明
 

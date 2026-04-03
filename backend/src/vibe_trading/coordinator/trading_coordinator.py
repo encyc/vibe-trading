@@ -102,7 +102,86 @@ class TradingCoordinator:
         # 决策历史
         self._decision_history: List[TradingDecision] = []
 
+        # 决策树数据
+        self._decision_tree = {
+            "root": None,
+            "current_phase": None,
+            "start_time": None,
+        }
+
         logger.info(f"TradingCoordinator initialized for {symbol} {interval}")
+
+    async def _update_decision_tree(
+        self,
+        phase: str,
+        status: str = "running",
+        agents: Optional[List[dict]] = None,
+        content: Optional[str] = None,
+        decision: Optional[str] = None,
+    ):
+        """更新决策树数据并推送到Web UI"""
+        from datetime import datetime
+
+        if not self._decision_tree["root"]:
+            self._decision_tree["start_time"] = datetime.now().isoformat()
+            self._decision_tree["root"] = {
+                "label": f"{self.symbol} 新K线到达",
+                "phase": "root",
+                "status": "running",
+                "children": [],
+            }
+
+        # 查找或创建当前阶段节点
+        def find_or_create_phase(node, phase_name):
+            if node.get("phase") == phase_name:
+                return node
+            if "children" in node:
+                for child in node["children"]:
+                    result = find_or_create_phase(child, phase_name)
+                    if result:
+                        return result
+            return None
+
+        # 构建阶段节点
+        phase_node = {
+            "label": self._get_phase_label(phase),
+            "phase": phase,
+            "status": status,
+        }
+
+        if agents:
+            phase_node["agents"] = agents
+        if content:
+            phase_node["content"] = content[:200] + "..." if len(content) > 200 else content
+        if decision:
+            phase_node["decision"] = decision
+
+        # 更新或添加节点
+        root = self._decision_tree["root"]
+        existing = find_or_create_phase(root, phase)
+
+        if existing:
+            existing.update(phase_node)
+        else:
+            root["children"].append(phase_node)
+
+        # 推送到Web UI
+        try:
+            from vibe_trading.web.server import send_decision_tree
+            await send_decision_tree(self._decision_tree)
+        except Exception:
+            pass  # Web服务器未启动时忽略
+
+    def _get_phase_label(self, phase: str) -> str:
+        """获取阶段标签"""
+        labels = {
+            "analysts": "📊 Phase 1: 分析师团队",
+            "researchers": "🎭 Phase 2: 研究员辩论",
+            "risk": "⚠️ Phase 3: 风控评估",
+            "trader": "📋 Phase 4: 执行规划",
+            "pm": "🎯 最终决策",
+        }
+        return labels.get(phase, phase)
 
     async def initialize(self) -> None:
         """初始化所有 Agent"""
@@ -196,8 +275,21 @@ class TradingCoordinator:
 
         # Phase 1: 分析师生成报告
         info("Phase 1: 分析师生成报告...", tag="Analysts")
+
+        # 更新决策树 - 阶段开始
+        await self._update_decision_tree("analysts", "running")
+
         analyst_reports = await self._run_analysts(context)
         agent_outputs["analysts"] = analyst_reports
+
+        # 构建Agent状态列表
+        agent_statuses = [
+            {"name": role, "status": "completed"}
+            for role in analyst_reports.keys()
+        ]
+
+        # 更新决策树 - 阶段完成
+        await self._update_decision_tree("analysts", "completed", agents=agent_statuses)
 
         # 推送报告到 Web
         try:
@@ -217,8 +309,19 @@ class TradingCoordinator:
 
         # Phase 2: 研究员辩论
         info("Phase 2: 研究员辩论...", tag="Researchers")
+
+        # 更新决策树 - 阶段开始
+        await self._update_decision_tree("researchers", "running")
+
         investment_plan = await self._run_research_debate(context, analyst_reports)
         agent_outputs["investment_plan"] = investment_plan
+
+        # 更新决策树 - 阶段完成
+        await self._update_decision_tree(
+            "researchers",
+            "completed",
+            content=investment_plan[:500] if len(investment_plan) > 500 else investment_plan
+        )
 
         # 推送投资计划到 Web
         try:
@@ -236,10 +339,24 @@ class TradingCoordinator:
 
         # Phase 3: 风控评估
         info("Phase 3: 风控评估...", tag="Risk")
+
+        # 更新决策树 - 阶段开始
+        await self._update_decision_tree("risk", "running")
+
         risk_assessment = await self._run_risk_assessment(
             investment_plan, current_positions, account_balance
         )
         agent_outputs["risk_assessment"] = risk_assessment
+
+        # 更新决策树 - 阶段完成
+        await self._update_decision_tree(
+            "risk",
+            "completed",
+            agents=[
+                {"name": role, "status": "completed"}
+                for role in risk_assessment.keys() if role != "error"
+            ]
+        )
 
         # 推送风控报告到 Web
         try:
@@ -261,10 +378,21 @@ class TradingCoordinator:
 
         # Phase 4: 交易员制定方案
         info("Phase 4: 交易员制定方案...", tag="Trader")
+
+        # 更新决策树 - 阶段开始
+        await self._update_decision_tree("trader", "running")
+
         trading_plan = await self._run_trader(
             investment_plan, risk_assessment, context, account_balance
         )
         agent_outputs["trading_plan"] = trading_plan
+
+        # 更新决策树 - 阶段完成
+        await self._update_decision_tree(
+            "trader",
+            "completed",
+            content=trading_plan[:500] if len(trading_plan) > 500 else trading_plan
+        )
 
         # 推送交易方案到 Web
         try:
@@ -282,6 +410,10 @@ class TradingCoordinator:
 
         # Phase 5: 投资组合经理最终决策
         info("Phase 5: 投资组合经理最终决策...", tag="PM")
+
+        # 更新决策树 - 阶段开始
+        await self._update_decision_tree("pm", "running")
+
         final_decision = await self._run_portfolio_manager(
             analyst_reports,
             investment_plan,
@@ -290,6 +422,14 @@ class TradingCoordinator:
             current_positions,
             account_balance,
             context,
+        )
+
+        # 更新决策树 - 最终决策
+        await self._update_decision_tree(
+            "pm",
+            "completed",
+            decision=final_decision.get("decision", "HOLD"),
+            content=final_decision.get("rationale", "")[:300]
         )
 
         # 推送最终决策到 Web
@@ -508,7 +648,19 @@ class TradingCoordinator:
         if not self._trader:
             return "No trading plan (trader not enabled)"
 
+        # 从投资计划中提取方向
+        direction = "HOLD"  # 默认
+        plan_lower = investment_plan.lower()
+
+        if "做多" in plan_lower or "long" in plan_lower or "买入" in plan_lower or "看涨" in plan_lower:
+            direction = "LONG"
+        elif "做空" in plan_lower or "short" in plan_lower or "卖出" in plan_lower or "看跌" in plan_lower:
+            direction = "SHORT"
+        elif "观望" in plan_lower or "hold" in plan_lower:
+            direction = "HOLD"
+
         return await self._trader.create_trading_plan(
+            direction=direction,
             investment_recommendation=investment_plan,
             risk_assessment=risk_assessment,
             current_price=context.current_price,

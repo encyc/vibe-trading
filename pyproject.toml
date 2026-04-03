@@ -30,6 +30,7 @@ dependencies = [
     # Logging
     "loguru>=0.7.2",
     "pyyaml>=6.0.3",
+    "structlog>=24.1.0",
     "greenlet>=3.3.2",
     "openai>=2.30.0",
     "fastapi>=0.135.3",

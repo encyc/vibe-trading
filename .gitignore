@@ -57,3 +57,4 @@ uv.lock
 Thumbs.db
 .DS_Store
 backend/src/pi_ai/llm.yaml
+cache/

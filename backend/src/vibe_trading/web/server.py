@@ -233,6 +233,13 @@ async def reset_data():
     return {"success": True}
 
 
+@app.post("/api/decision_tree")
+async def update_decision_tree(tree_data: dict):
+    """更新决策树"""
+    await state.send_update("decision_tree", tree_data)
+    return {"success": True}
+
+
 # =============================================================================
 # 辅助函数 - 用于 test_historical.py 调用
 # =============================================================================
@@ -298,6 +305,16 @@ async def send_report(agent: str, content: str, phase: str = "") -> None:
                 "content": content,
                 "phase": phase
             })
+    except Exception:
+        pass
+
+
+async def send_decision_tree(tree_data: dict) -> None:
+    """发送决策树数据"""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            await client.post(f"{_api_base_url}/api/decision_tree", json=tree_data)
     except Exception:
         pass
 
