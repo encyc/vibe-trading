@@ -5,6 +5,13 @@
 ## ✨ 特性
 
 **🚀 最新改进 (2026-04-03)**:
+
+- **Agent Tools集成**: 23个工具封装，按角色分配专门工具集
+  - 技术分析工具 (9个): 指标、趋势、支撑阻力、K线形态、背离、成交量、枢轴点
+  - 基本面工具 (5个): 资金费率、多空比、持仓量、买卖比例、大户多空比
+  - 情绪分析工具 (3个): 恐惧贪婪指数、新闻情绪、社交情绪
+  - 风险数据工具 (4个): 清算订单、持仓量等
+  - 模型路由器: 自动切换iflow模型进行工具调用
 - **状态机管理**: 决策流程状态追踪，7种状态转换管理
 - **Agent消息标准化**: 8种消息类型，correlation_id关联追踪
 - **并行执行优化**: Phase 1并行执行，~30x加速比
@@ -14,7 +21,9 @@
 - **缓存机制**: 混合LRU+文件缓存，~2700x加速
 - **Token优化**: Prompt压缩91%+，成本控制
 
-详见 [改进实施总结](./IMPROVEMENTS_SUMMARY.md)
+详见 [Agent Tools集成文档](./docs/AGENT_TOOLS_INTEGRATION.md) | [改进实施总结](./IMPROVEMENTS_SUMMARY.md)
+
+**核心功能**:
 
 **核心功能**:
 - **🤖 12 Agent 协作决策**: 4阶段层级协作，从市场分析到交易执行
@@ -220,38 +229,77 @@ Phase 4 (决策层)
 3. **Phase 3 → Phase 4**: 风控评估是否在可接受范围内？
 4. **Phase 4 最终**: 投资组合经理是否批准执行？
 
-## 🔧 高级技术工具
+## 🔧 Agent 工具系统
 
-### 技术分析工具
+### 工具总览
+
+系统共有 **23 个工具**，按 Agent 角色专门分配：
+
+### 技术分析工具 (9个)
 
 | 工具名称 | 功能描述 | 返回内容 |
 | -------- | -------- | -------- |
 | `get_technical_indicators()` | 获取综合技术指标 | RSI, MACD, 布林带, SMA/EMA, ATR |
+| `get_comprehensive_technical_analysis()` | 综合技术分析 | 趋势、信号、支撑阻力位 |
 | `analyze_trend()` | 趋势方向和强度分析 | 趋势方向, 趋势强度, 价格与均线关系 |
+| `detect_support_resistance()` | 支撑阻力位检测 | 支撑位列表, 阻力位列表, 强度评级 |
 | `detect_candlestick_patterns()` | K线形态检测 | Doji, Hammer, Engulfing, Morning/Evening Star等 |
 | `detect_divergence()` | 指标背离检测 | RSI背离, MACD背离, 背离强度 |
 | `analyze_volume_patterns()` | 成交量分析 | 放量/缩量, OBV趋势, 量价关系 |
-| `detect_support_resistance()` | 支撑阻力位检测 | 支撑位列表, 阻力位列表, 强度评级 |
 | `calculate_pivots()` | 枢轴点计算 | 经典枢轴, 斐波那契枢轴, 关键位 |
+| `get_kline_data()` | 获取K线数据 | OHLCV数据 |
 
-### 基本面分析工具
-
-| 工具名称 | 功能描述 | 返回内容 |
-| -------- | -------- | -------- |
-| `get_on_chain_metrics()` | 链上指标 | 活跃地址数, 交易所流入流出, 大额转账 |
-| `analyze_funding_rates()` | 资金费率分析 | 多交易所对比, 套利机会 |
-| `get_long_short_ratio()` | 多空比例分析 | 大户多空比, 散户多空比, 极端值预警 |
-| `analyze_open_interest()` | 持仓量分析 | OI趋势, 增仓/减仓, 价格关系 |
-
-### 情绪分析工具
+### 基本面/合约工具 (5个)
 
 | 工具名称 | 功能描述 | 返回内容 |
 | -------- | -------- | -------- |
-| `get_fear_and_greed_index()` | 恐惧贪婪指数 | 当前数值, 历史对比, 情绪解读 |
-| `get_social_sentiment()` | 社交媒体情绪 | LunarCrush/CryptoCompare数据 |
-| `analyze_news_sentiment()` | 新闻情绪分析 | 利好消息数, 利空消息数, 影响评分 |
+| `get_funding_rate()` | 资金费率 | 当前费率, 标记价格 |
+| `get_long_short_ratio()` | 多空比例 | 多空比, 多空账户占比 |
+| `get_open_interest()` | 持仓量 | 持仓量, 变化幅度 |
+| `get_taker_buy_sell_ratio()` | 主动买卖比例 | 主动买盘/卖盘比例 |
+| `get_top_trader_long_short_ratio()` | 大户多空比 | Top Trader多空比 |
 
-### 高级风控工具
+### 情绪分析工具 (3个)
+
+| 工具名称 | 功能描述 | 返回内容 |
+| -------- | -------- | -------- |
+| `get_fear_and_greed_index()` | 恐惧贪婪指数 | 当前数值, 分类 |
+| `get_news_sentiment()` | 新闻情绪分析 | 最新新闻, 情绪评分 |
+| `get_social_sentiment()` | 社交媒体情绪 | 情绪评分, 提及次数 |
+| `get_comprehensive_sentiment()` | 综合情绪分析 | 综合评分, 信号 |
+
+### 市场数据工具 (3个)
+
+| 工具名称 | 功能描述 | 返回内容 |
+| -------- | -------- | -------- |
+| `get_current_price()` | 当前价格 | 最新成交价 |
+| `get_24hr_ticker()` | 24小时行情 | 涨跌幅, 成交量 |
+| `get_order_book()` | 订单簿深度 | 买卖盘深度 |
+
+### 风险数据工具 (3个)
+
+| 工具名称 | 功能描述 | 返回内容 |
+| -------- | -------- | -------- |
+| `get_liquidation_orders()` | 清算订单 | 最近清算记录 |
+| `get_trending_symbols()` | 热门交易对 | 涨跌幅榜 |
+
+### 工具分配
+
+| Agent | 工具数 | 包含工具 |
+| ----- | ------ | -------- |
+| Technical Analyst | 8 | 价格、行情、订单簿、技术指标、趋势、支撑阻力、K线形态 |
+| Fundamental Analyst | 5 | 资金费率、多空比、持仓量、买卖比例、大户多空比 |
+| News Analyst | 2 | 新闻情绪、热门交易对 |
+| Sentiment Analyst | 5 | 恐惧贪婪、社交情绪、综合情绪、资金费率、多空比 |
+| Bull/Bear Researcher | 8 | 价格、行情、恐惧贪婪、新闻、资金费率、多空比、持仓量、技术指标 |
+| Research Manager | 8 | (同研究员) |
+| Debators (3种) | 4 | 清算订单、资金费率、持仓量、买卖比例 |
+| Trader | 5 | 价格、行情、订单簿、资金费率、技术指标 |
+| Portfolio Manager | 23 | 全部工具 |
+
+详细说明见 [Agent Tools集成文档](./docs/AGENT_TOOLS_INTEGRATION.md)
+
+## 🔧 高级风控工具
 
 | 工具名称 | 功能描述 | 应用场景 |
 | -------- | -------- | -------- |

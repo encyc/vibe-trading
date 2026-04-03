@@ -76,11 +76,17 @@ class TradingPlan:
     execution_notes: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
+        # 辅助函数：获取枚举值
+        def get_enum_val(val):
+            if hasattr(val, 'value'):
+                return val.value
+            return val
+
         return {
             "symbol": self.symbol,
-            "position_side": self.position_side.value,
+            "position_side": get_enum_val(self.position_side),
             "direction": self.direction,
-            "execution_style": self.execution_style.value,
+            "execution_style": get_enum_val(self.execution_style),
             "entry_orders": self.entry_orders,
             "total_position_usdt": self.total_position_usdt,
             "total_position_coin": self.total_position_coin,
@@ -92,6 +98,50 @@ class TradingPlan:
             "risk_reward_ratio": self.risk_reward_ratio,
             "execution_notes": self.execution_notes,
         }
+
+    def __str__(self) -> str:
+        """生成可读的交易计划字符串"""
+        # 辅助函数：获取枚举值
+        def get_enum_val(val):
+            if hasattr(val, 'value'):
+                return val.value
+            return val
+
+        lines = [
+            f"=== {self.direction} 交易执行计划 ===",
+            f"交易对: {self.symbol}",
+            f"执行风格: {get_enum_val(self.execution_style)}",
+            f"杠杆: {self.leverage}x",
+            "",
+            "【入场计划】",
+        ]
+
+        for i, order in enumerate(self.entry_orders, 1):
+            lines.append(f"  订单{i}: {order['order_type']} @ {order['price']} ({order['pct']}%) - {order['note']}")
+
+        lines.append(f"\n总仓位: {self.total_position_usdt} USDT ({self.total_position_coin:.6f} 币)")
+        lines.append(f"风险敞口: {self.max_loss_usdt} USDT ({self.max_loss_pct:.2f}%)")
+
+        lines.append("\n【止损计划】")
+        for i, sl in enumerate(self.stop_loss_orders, 1):
+            lines.append(f"  止损{i}: {sl['trigger_price']} - {sl['note']}")
+
+        lines.append("\n【止盈计划】")
+        for i, tp in enumerate(self.take_profit_orders, 1):
+            lines.append(f"  止盈{i}: {tp['price']} ({tp['pct']}%) - {tp['note']}")
+
+        lines.append(f"\n盈亏比: {self.risk_reward_ratio}:1")
+
+        if self.execution_notes:
+            lines.append("\n【执行说明】")
+            for note in self.execution_notes:
+                lines.append(f"  {note}")
+
+        return "\n".join(lines)
+
+    def __len__(self) -> int:
+        """返回字符串长度，用于切片操作"""
+        return len(str(self))
 
 
 @dataclass
@@ -135,6 +185,40 @@ class DecisionScorecard:
             "risk_factors": self.risk_factors,
             "rationale": self.rationale,
         }
+
+    def __str__(self) -> str:
+        """生成可读的评分卡字符串"""
+        lines = [
+            "=== 决策评分卡 ===",
+            f"总体得分: {self.overall_score:.1f}/100",
+            f"置信度: {self.confidence:.1%}",
+            f"建议操作: {self.recommended_action}",
+            f"仓位建议: {self.position_size_recommendation}",
+            "",
+            "【维度得分】",
+            f"  技术面: {self.technical_score:.1f}/100",
+            f"  基本面: {self.fundamental_score:.1f}/100",
+            f"  情绪面: {self.sentiment_score:.1f}/100",
+            f"  风险面: {self.risk_score:.1f}/100",
+            "",
+            "【支持因素】",
+        ]
+
+        for factor in self.supporting_factors[:5]:
+            lines.append(f"  + {factor}")
+
+        if self.risk_factors:
+            lines.append("\n【风险因素】")
+            for risk in self.risk_factors[:5]:
+                lines.append(f"  - {risk}")
+
+        lines.append(f"\n【决策理由】\n{self.rationale}")
+
+        return "\n".join(lines)
+
+    def __len__(self) -> int:
+        """返回字符串长度，用于切片操作"""
+        return len(str(self))
 
 
 class PositionSizeCalculator:
