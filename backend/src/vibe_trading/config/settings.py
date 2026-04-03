@@ -4,12 +4,21 @@
 使用单例模式管理应用配置。
 """
 import os
+from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional
 from dotenv import load_dotenv
 
-load_dotenv()
+# 尝试从项目根目录加载 .env 文件
+# settings.py 在 backend/src/vibe_trading/config/
+# 项目根目录在往上 5 级
+_env_path = Path(__file__).parent.parent.parent.parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path, override=True)
+else:
+    # 回退到默认加载方式
+    load_dotenv()
 
 
 class TradingMode(str, Enum):
@@ -61,6 +70,7 @@ class Settings:
 
     # 外部 API 配置
     cryptocmp_api_key: Optional[str] = field(default_factory=lambda: os.getenv("CRYPTOCOMPARE_API_KEY"))
+    lunarcrush_api_key: Optional[str] = field(default_factory=lambda: os.getenv("LUNARCRUSH_API_KEY"))
 
     # 数据库配置
     database_url: str = "sqlite+aiosqlite:///./vibe_trading.db"
@@ -85,6 +95,8 @@ class Settings:
             log_level=LogLevel(os.getenv("LOG_LEVEL", "INFO")),
             log_file=os.getenv("LOG_FILE"),
             database_url=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./vibe_trading.db"),
+            cryptocmp_api_key=os.getenv("CRYPTOCOMPARE_API_KEY"),
+            lunarcrush_api_key=os.getenv("LUNARCRUSH_API_KEY"),
         )
 
 

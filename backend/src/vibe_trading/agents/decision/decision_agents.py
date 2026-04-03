@@ -13,12 +13,26 @@ from vibe_trading.config.agent_config import AgentConfig, AgentRole
 from vibe_trading.config.prompts import TRADER_PROMPT, PORTFOLIO_MANAGER_PROMPT
 from vibe_trading.config.settings import get_settings
 from vibe_trading.agents.agent_factory import ToolContext, setup_streaming
+from vibe_trading.agents.decision.trading_tools import (
+    PositionSizeCalculator,
+    StopLossTakeProfitCalculator,
+    ExecutionStrategyCalculator,
+    DecisionFramework,
+    TradingPlan,
+    DecisionScorecard,
+    OrderType,
+    PositionSide,
+    ExecutionStyle,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class TraderAgent:
-    """交易员 Agent"""
+    """交易员 Agent (增强版)
+
+    职责：基于已确定的交易方向，制定具体的执行计划。
+    """
 
     def __init__(self, config: Optional[AgentConfig] = None):
         self.config = config or AgentConfig(
@@ -28,6 +42,11 @@ class TraderAgent:
         )
         self._agent: Optional[Agent] = None
         self._tool_context: Optional[ToolContext] = None
+
+        # 交易工具
+        self._position_size_calculator = PositionSizeCalculator()
+        self._stop_loss_calculator = StopLossTakeProfitCalculator()
+        self._execution_strategy_calculator = ExecutionStrategyCalculator()
 
     async def initialize(self, tool_context: ToolContext, enable_streaming: bool = True) -> None:
         """初始化 Agent"""
@@ -53,59 +72,222 @@ class TraderAgent:
 
     async def create_trading_plan(
         self,
+        direction: str,  # LONG/SHORT (由前面阶段确定)
         investment_recommendation: str,
         risk_assessment: Dict[str, str],
         current_price: float,
         account_balance: float,
-    ) -> str:
-        """创建交易计划"""
+        atr: Optional[float] = None,
+        kelly_fraction: Optional[float] = None,
+        urgency_level: str = "normal",  # 由研究团队建议
+        volatility: Optional[float] = None,
+        spread_pct: Optional[float] = None,
+        volume_24h: Optional[float] = None,
+    ) -> TradingPlan:
+        """
+        创建交易执行计划
+
+        基于已确定的交易方向，制定具体的执行方案。
+
+        Args:
+            direction: 交易方向 (由分析师团队和研究员团队确定)
+            investment_recommendation: 研究经理的投资建议
+            risk_assessment: 风控团队的风险评估
+            current_price: 当前价格
+            account_balance: 账户余额
+            atr: ATR波动率
+            kelly_fraction: 凯利公式仓位建议
+            urgency_level: 紧急程度 (由研究团队建议)
+            volatility: 波动率
+            spread_pct: 买卖价差
+            volume_24h: 24小时成交量
+        """
         if not self._agent:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
 
-        prompt = f"""Based on the research manager's recommendation, please create a detailed trading plan for {self._tool_context.symbol}.
+        # 1. 确定仓位方向
+        position_side = PositionSide.LONG if direction == "LONG" else PositionSide.SHORT
 
-INVESTMENT RECOMMENDATION:
-{investment_recommendation}
+        # 2. 计算止损止盈
+        sltp_levels = self._stop_loss_calculator.calculate_levels(
+            entry_price=current_price,
+            position_side=position_side,
+            atr=atr,
+            risk_reward_ratio=2.0,
+            volatility_adjusted=True,
+        )
 
-RISK ASSESSMENT:
-"""
+        # 3. 计算仓位大小
+        risk_preference = self._determine_risk_preference(risk_assessment)
+        position_calc = self._position_size_calculator.calculate_position_size(
+            account_balance=account_balance,
+            entry_price=current_price,
+            stop_loss_price=sltp_levels["stop_loss_price"],
+            risk_preference=risk_preference,
+            kelly_fraction=kelly_fraction,
+            current_atr=atr,
+        )
 
-        for role, assessment in risk_assessment.items():
-            prompt += f"\n{role.upper()}:\n{assessment}\n"
+        # 4. 确定执行策略 (如何进场)
+        execution_strategy = self._execution_strategy_calculator.determine_execution_style(
+            direction=direction,
+            current_price=current_price,
+            volatility=volatility,
+            spread_pct=spread_pct,
+            volume_24h=volume_24h,
+            urgency_level=urgency_level,
+        )
 
-        prompt += f"""
-CURRENT MARKET:
-Symbol: {self._tool_context.symbol}
-Current Price: {current_price}
-Account Balance: {account_balance} USDT
+        # 5. 构建具体入场订单
+        entry_orders = self._execution_strategy_calculator.build_entry_orders(
+            direction=direction,
+            current_price=current_price,
+            total_size_coin=position_calc["position_size_coin"],
+            entry_plan=execution_strategy["entry_orders"],
+        )
 
-Please provide a detailed trading plan including:
-1. Trading direction (LONG/SHORT)
-2. Entry price and method (market/limit)
-3. Position size (in USDT and quantity)
-4. Stop loss price and logic
-5. Take profit targets (with partial profit levels)
-6. Expected holding time
-7. Add-on or reduction plan
-"""
+        # 6. 构建止损订单
+        stop_loss_orders = [{
+            "order_type": "stop_market",
+            "trigger_price": sltp_levels["stop_loss_price"],
+            "size_coin": position_calc["position_size_coin"],
+            "note": "止损单",
+        }]
+
+        # 7. 构建止盈订单
+        take_profit_orders = []
+        for tp in sltp_levels["partial_take_profits"]:
+            take_profit_orders.append({
+                "order_type": "limit",
+                "price": tp["price"],
+                "size_coin": position_calc["position_size_coin"] * tp["size_pct"] / 100,
+                "pct": tp["size_pct"],
+                "note": f"第{tp['level']}批止盈({tp['size_pct']}%)",
+            })
+
+        # 8. 构建交易计划
+        trading_plan = TradingPlan(
+            symbol=self._tool_context.symbol,
+            position_side=position_side,
+            direction=direction,
+            execution_style=execution_strategy["execution_style"],
+            entry_orders=entry_orders,
+            total_position_usdt=position_calc["position_size_usdt"],
+            total_position_coin=position_calc["position_size_coin"],
+            leverage=position_calc["leverage"],
+            stop_loss_orders=stop_loss_orders,
+            take_profit_orders=take_profit_orders,
+            trailing_stop_config=sltp_levels["trailing_stop_config"],
+            max_loss_usdt=position_calc["risk_amount_usdt"],
+            max_loss_pct=position_calc["stop_distance_pct"],
+            risk_reward_ratio=sltp_levels["risk_reward_ratio"],
+            execution_notes=[
+                f"执行风格: {execution_strategy['execution_style'].value}",
+                f"风险偏好: {risk_preference}",
+                f"止损距离: {position_calc['stop_distance_pct']}%",
+                f"执行理由: {execution_strategy['reasoning']}",
+            ],
+        )
+
+        # 9. 使用LLM生成详细分析
+        prompt = self._build_trading_plan_prompt(
+            trading_plan=trading_plan,
+            investment_recommendation=investment_recommendation,
+            risk_assessment=risk_assessment,
+        )
 
         await self._agent.prompt(prompt)
 
-        # 获取响应
+        # 获取LLM响应并添加到执行说明
         messages = self._agent.state.messages
         if messages:
             last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
             if last_assistant:
                 content = last_assistant[-1].content
                 if isinstance(content, list):
-                    return "".join(getattr(c, "text", str(c)) for c in content)
-                return str(content)
+                    llm_response = "".join(getattr(c, "text", str(c)) for c in content)
+                else:
+                    llm_response = str(content)
+                trading_plan.execution_notes.append(f"\nLLM分析:\n{llm_response}")
 
-        return "Trading plan creation failed - no response from agent"
+        return trading_plan
+
+    def _determine_risk_preference(self, risk_assessment: Dict[str, str]) -> str:
+        """从风险评估中确定风险偏好"""
+        risk_scores = []
+        for role, assessment in risk_assessment.items():
+            if "conservative" in role.lower() or "保守" in assessment:
+                risk_scores.append(0)
+            elif "aggressive" in role.lower() or "激进" in assessment:
+                risk_scores.append(2)
+            else:
+                risk_scores.append(1)
+
+        avg_risk = sum(risk_scores) / len(risk_scores) if risk_scores else 1
+
+        if avg_risk <= 0.5:
+            return "conservative"
+        elif avg_risk >= 1.5:
+            return "aggressive"
+        else:
+            return "moderate"
+
+    def _build_trading_plan_prompt(
+        self,
+        trading_plan: TradingPlan,
+        investment_recommendation: str,
+        risk_assessment: Dict[str, str],
+    ) -> str:
+        """构建交易计划提示"""
+        prompt = f"""请基于以下量化分析，为{self._tool_context.symbol}提供你的定性评估。
+
+量化交易执行计划:
+方向: {trading_plan.direction}
+执行风格: {trading_plan.execution_style.value}
+
+入场计划:
+"""
+        for order in trading_plan.entry_orders:
+            prompt += f"  - {order['order_type']} @ {order['price']} ({order['pct']}%) {order['note']}\n"
+
+        prompt += f"""
+仓位: {trading_plan.total_position_usdt} USDT ({trading_plan.total_position_coin:.6f} coins)
+杠杆: {trading_plan.leverage}x
+
+止损: {trading_plan.stop_loss_orders[0]['trigger_price']} ({trading_plan.max_loss_pct:.2f}%)
+止盈:
+"""
+        for tp in trading_plan.take_profit_orders:
+            prompt += f"  - {tp['price']} ({tp['pct']}%) {tp['note']}\n"
+
+        prompt += f"""
+盈亏比: {trading_plan.risk_reward_ratio}:1
+
+投资建议 (研究经理):
+{investment_recommendation[:500]}...
+
+风险评估:
+"""
+        for role, assessment in risk_assessment.items():
+            prompt += f"\n{role.upper()}:\n{assessment[:200]}...\n"
+
+        prompt += """
+请提供你的分析:
+1. 这个量化执行计划是否合理? 如有调整请说明理由
+2. 对执行时机的建议
+3. 任何额外的风险提示
+
+**重要: 请使用中文输出所有分析.**
+"""
+
+        return prompt
 
 
 class PortfolioManagerAgent:
-    """投资组合经理 Agent"""
+    """投资组合经理 Agent
+
+    最终决策者，负责审批交易计划并做出最终决策。
+    """
 
     def __init__(self, config: Optional[AgentConfig] = None):
         self.config = config or AgentConfig(
@@ -115,6 +297,10 @@ class PortfolioManagerAgent:
         )
         self._agent: Optional[Agent] = None
         self._tool_context: Optional[ToolContext] = None
+        self._memory: Optional[object] = None
+
+        # 决策框架
+        self._decision_framework = DecisionFramework()
 
     async def initialize(
         self,
@@ -160,34 +346,139 @@ class PortfolioManagerAgent:
         self,
         analyst_reports: Dict[str, str],
         investment_plan: str,
-        trading_plan: str,
+        trading_plan: TradingPlan,
+        risk_debate: Dict[str, str],
+        current_positions: List[Dict],
+        account_balance: float,
+        current_price: float,
+    ) -> Dict:
+        """
+        做出最终交易决策 (增强版)
+
+        Returns:
+            {
+                "scorecard": DecisionScorecard,
+                "decision_text": str,
+                "execution_plan": Optional[TradingPlan],
+            }
+        """
+        if not self._agent:
+            raise RuntimeError("Agent not initialized. Call initialize() first.")
+
+        # 1. 使用决策框架计算评分卡
+        scorecard = self._decision_framework.calculate_decision_scorecard(
+            analyst_reports=analyst_reports,
+            research_recommendation={"action": trading_plan.direction, "confidence": 0.7},
+            risk_assessment=risk_debate,
+            current_market_data={"price": current_price, "balance": account_balance},
+        )
+
+        # 2. 如果决策是HOLD或信号较弱，直接返回
+        if scorecard.recommended_action in ["HOLD", "WEAK_BUY", "WEAK_SELL"]:
+            return {
+                "scorecard": scorecard,
+                "decision_text": f"Decision: {scorecard.recommended_action}\nRationale: {scorecard.rationale}",
+                "execution_plan": None,
+            }
+
+        # 3. 如果决策是执行交易，使用LLM生成详细决策文本
+        prompt = self._build_decision_prompt(
+            scorecard=scorecard,
+            analyst_reports=analyst_reports,
+            investment_plan=investment_plan,
+            trading_plan=trading_plan,
+            risk_debate=risk_debate,
+            current_positions=current_positions,
+            account_balance=account_balance,
+            current_price=current_price,
+        )
+
+        await self._agent.prompt(prompt)
+
+        # 获取LLM响应
+        decision_text = ""
+        messages = self._agent.state.messages
+        if messages:
+            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
+            if last_assistant:
+                content = last_assistant[-1].content
+                if isinstance(content, list):
+                    decision_text = "".join(getattr(c, "text", str(c)) for c in content)
+                else:
+                    decision_text = str(content)
+
+        # 4. 记录决策历史
+        self._decision_framework.record_decision(
+            decision=scorecard.to_dict(),
+            actual_execution=trading_plan.to_dict() if trading_plan else None,
+        )
+
+        return {
+            "scorecard": scorecard,
+            "decision_text": decision_text,
+            "execution_plan": trading_plan if trading_plan.position_size_usdt > 0 else None,
+        }
+
+    def _build_decision_prompt(
+        self,
+        scorecard: DecisionScorecard,
+        analyst_reports: Dict[str, str],
+        investment_plan: str,
+        trading_plan: TradingPlan,
         risk_debate: Dict[str, str],
         current_positions: List[Dict],
         account_balance: float,
         current_price: float,
     ) -> str:
-        """做出最终交易决策"""
-        if not self._agent:
-            raise RuntimeError("Agent not initialized. Call initialize() first.")
-
+        """构建决策提示"""
         prompt = f"""As the Portfolio Manager, please make the final trading decision for {self._tool_context.symbol}.
+
+QUANTITATIVE DECISION SCORECARD:
+Overall Score: {scorecard.overall_score}/100
+Recommended Action: {scorecard.recommended_action}
+Confidence: {scorecard.confidence:.1%}
+
+Dimension Scores:
+- Technical: {scorecard.technical_score}/100
+- Fundamental: {scorecard.fundamental_score}/100
+- Sentiment: {scorecard.sentiment_score}/100
+- Risk: {scorecard.risk_score}/100
+
+Rationale: {scorecard.rationale}
+
+Supporting Factors:
+"""
+        for factor in scorecard.supporting_factors:
+            prompt += f"  + {factor}\n"
+
+        if scorecard.risk_factors:
+            prompt += "\nRisk Factors:\n"
+            for risk in scorecard.risk_factors:
+                prompt += f"  - {risk}\n"
+
+        prompt += f"""
+PROPOSED TRADING PLAN:
+Direction: {trading_plan.direction}
+Entry: {trading_plan.entry_type.value} @ {trading_plan.entry_price}
+Position: {trading_plan.position_size_usdt} USDT ({trading_plan.position_size_coin:.6f} coins)
+Stop Loss: {trading_plan.stop_loss_price}
+Take Profit: {trading_plan.target_price}
+Leverage: {trading_plan.leverage}x
+R:R Ratio: {trading_plan.risk_reward_ratio}:1
 
 ANALYST REPORTS:
 """
         for role, report in analyst_reports.items():
-            prompt += f"\n{role.upper()}:\n{report}\n"
+            prompt += f"\n{role.upper()}:\n{report[:300]}...\n"
 
         prompt += f"""
 INVESTMENT PLAN (Research Manager):
-{investment_plan}
+{investment_plan[:500]}...
 
-TRADING PLAN (Trader):
-{trading_plan}
-
-RISK DEBATE:
+RISK ASSESSMENT:
 """
         for role, assessment in risk_debate.items():
-            prompt += f"\n{role.upper()}:\n{assessment}\n"
+            prompt += f"\n{role.upper()}:\n{assessment[:200]}...\n"
 
         prompt += f"""
 CURRENT STATUS:
@@ -201,27 +492,15 @@ Current Positions: {len(current_positions)}
 
         prompt += """
 Please provide your FINAL DECISION including:
-1. Decision rating (STRONG BUY/BUY/WEAK BUY/HOLD/WEAK SELL/SELL/STRONG SELL)
-2. Rationale for your decision
-3. Specific execution instructions (if deciding to trade)
-4. Risk warnings
+1. Confirm or modify the quantitative recommendation
+2. Your qualitative assessment and rationale
+3. Specific execution instructions (if approving the trade)
+4. Any additional risk warnings or considerations
 
 This decision will be executed, so be specific and careful.
 """
 
-        await self._agent.prompt(prompt)
-
-        # 获取响应
-        messages = self._agent.state.messages
-        if messages:
-            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-            if last_assistant:
-                content = last_assistant[-1].content
-                if isinstance(content, list):
-                    return "".join(getattr(c, "text", str(c)) for c in content)
-                return str(content)
-
-        return "Final decision failed - no response from agent"
+        return prompt
 
 
 async def create_trader(tool_context: ToolContext) -> TraderAgent:

@@ -110,6 +110,9 @@ async def test_social_sentiment():
 
     if "error" in result:
         console.print(f"[red]✗ 错误: {result['error']}[/red]")
+        if not result.get("available"):
+            console.print("\n[dim]提示: CryptoCompare 社交数据需要付费订阅。[/dim]")
+        console.print()
         return
 
     source = result.get("source", "Unknown")
@@ -173,7 +176,7 @@ async def main():
     # 汇总
     console.print(Panel("[bold green]✅ 测试完成[/bold green]"))
     console.print()
-    console.print("[dim]提示: 如果看到 'Simulated' 数据源，说明 CRYPTOCOMPARE_API_KEY 未配置或 API 调用失败。[/dim]")
+    console.print("[dim]提示: 社交情绪数据需要 CryptoCompare 付费订阅。新闻数据免费可用。[/dim]")
     console.print()
 
 

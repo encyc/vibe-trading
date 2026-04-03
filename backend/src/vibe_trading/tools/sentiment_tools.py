@@ -2,6 +2,8 @@
 情绪分析工具
 
 为 Agent 提供市场情绪分析相关的工具函数。
+
+注意: 本模块只使用真实数据源。如果 API 不可用或需要付费，将返回错误而非模拟数据。
 """
 import logging
 from typing import Optional
@@ -70,18 +72,20 @@ async def get_fear_and_greed_index() -> dict:
 
 async def get_social_sentiment(symbol: str) -> dict:
     """
-    获取社交媒体情绪 (使用 CryptoCompare API)
+    获取社交媒体情绪 (优先使用 LunarCrush，备用 CryptoCompare)
+
+    LunarCrush: 免费层可用 (100请求/天)
+    CryptoCompare: 需要付费订阅
 
     Args:
         symbol: 交易对符号 (如 BTCUSDT -> BTC)
 
     Returns:
-        社交媒体情绪数据
+        社交媒体情绪数据，或错误信息
     """
     from vibe_trading.config.settings import get_settings
 
     settings = get_settings()
-    api_key = settings.cryptocmp_api_key
 
     # 映射交易对符号
     symbol_map = {
@@ -90,182 +94,166 @@ async def get_social_sentiment(symbol: str) -> dict:
         "BNBUSDT": "BNB",
         "SOLUSDT": "SOL",
     }
-    cc_symbol = symbol_map.get(symbol, symbol.replace("USDT", "")) if symbol else "BTC"
+    coin = symbol_map.get(symbol, symbol.replace("USDT", "")) if symbol else "BTC"
 
-    if not api_key:
-        # 没有配置 API key 时返回模拟数据
-        return await _get_simulated_social_sentiment(symbol)
+    # 优先尝试 LunarCrush (免费)
+    lunarcrush_key = settings.lunarcrush_api_key
+    if lunarcrush_key:
+        try:
+            async with httpx.AsyncClient() as client:
+                # LunarCrush API v4
+                # 文档: https://github.com/lunarcrush/api
+                # Base URL: https://lunarcrush.com/api4
+                # 注意: v4 API 可能需要付费订阅，免费 tier 可能无法访问所有端点
 
-    try:
-        async with httpx.AsyncClient() as client:
-            # CryptoCompare Social Stats API
-            # 免费版可能不包含社交数据，尝试使用替代方案
-            headers = {
-                "authorization": f"Apikey {api_key}"
-            }
+                # 尝试多个端点格式
+                endpoints_to_try = [
+                    f"https://lunarcrush.com/api4/public/feed/social/v2/{coin}",
+                    f"https://lunarcrush.com/api4/public/feeds/social/v2/{coin}",
+                    f"https://lunarcrush.com/api4/feed/social/v2/{coin}",
+                ]
 
-            # 尝试不同的社交数据端点
-            endpoints = [
-                # 端点1: 最新社交统计 (legacy)
-                f"https://min-api.cryptocompare.com/data/social/coin/latest/",
-                # 端点2: 历史社交统计
-                f"https://min-api.cryptocompare.com/data/social/coin/histo/day/",
-            ]
-
-            for endpoint_base in endpoints:
-                try:
-                    response = await client.get(
-                        endpoint_base,
-                        params={"coinId": cc_symbol},
-                        headers=headers,
-                        timeout=10.0
-                    )
+                for endpoint_url in endpoints_to_try:
+                    headers = {"Authorization": f"Bearer {lunarcrush_key}"}
+                    response = await client.get(endpoint_url, headers=headers, timeout=10.0)
 
                     if response.status_code == 200:
                         data = response.json()
-                        if data.get("Data") and len(data["Data"]) > 0:
-                            # 成功获取数据
-                            stats = data["Data"][0] if isinstance(data["Data"], list) else data["Data"]
+                        if data.get("data") and len(data["data"]) > 0:
+                            asset = data["data"][0]
 
-                            # 解析社交数据
-                            twitter_followers = stats.get("twitter_followers", 0)
-                            reddit_users = stats.get("reddit_users", 0)
-                            total_followers = twitter_followers + reddit_users
+                            # 提取社交媒体指标
+                            sentiment_score = asset.get("sentiment", 0)
+                            social_score = asset.get("social_score", 0)
+                            galaxy_score = asset.get("galaxy_score", 0)
+                            close_price = asset.get("close", 0)
 
-                            # 根据粉丝增长计算情绪
-                            # 这里使用简化的逻辑，实际可以更复杂
-                            sentiment_score = 0
-                            if total_followers > 0:
+                            # 提取社交媒体统计
+                            social_volume = asset.get("social_volume", 0)
+                            social_volume_24h_change = asset.get("social_volume_24h_change", 0)
+                            social_contributors = asset.get("social_contributors", 0)
+                            social_score_global_ranking = asset.get("social_score_global_ranking", 0)
+
+                            # 计算情绪分类
+                            if sentiment_score > 5:
+                                sentiment = "very_bullish"
+                            elif sentiment_score > 2:
+                                sentiment = "bullish"
+                            elif sentiment_score > -2:
                                 sentiment = "neutral"
+                            elif sentiment_score > -5:
+                                sentiment = "bearish"
                             else:
-                                sentiment = "neutral"
+                                sentiment = "very_bearish"
 
                             return {
                                 "symbol": symbol,
-                                "cc_symbol": cc_symbol,
+                                "coin": coin,
                                 "sentiment": sentiment,
                                 "sentiment_score": sentiment_score,
-                                "social_stats": {
-                                    "twitter_followers": twitter_followers,
-                                    "reddit_users": reddit_users,
-                                    "total_followers": total_followers,
+                                "social_metrics": {
+                                    "social_score": social_score,
+                                    "galaxy_score": galaxy_score,
+                                    "social_volume": social_volume,
+                                    "social_volume_24h_change": social_volume_24h_change,
+                                    "social_contributors": social_contributors,
+                                    "global_ranking": social_score_global_ranking,
                                 },
+                                "price": close_price,
                                 "mentions": {
-                                    "total": total_followers,
+                                    "total": social_volume,
+                                    "contributors": social_contributors,
                                 },
-                                "source": "CryptoCompare",
+                                "source": "LunarCrush",
+                                "available": True,
                             }
-                except Exception as e:
-                    logger.debug(f"Endpoint {endpoint_base} failed: {e}")
-                    continue
 
-            # 所有端点都失败
-            logger.warning("All CryptoCompare social endpoints failed, using simulated data")
-            return await _get_simulated_social_sentiment(symbol)
+                # 如果所有端点都失败了，记录日志继续下一个数据源
+                logger.debug(f"LunarCrush API: All endpoints returned non-200 status codes")
+        except Exception as e:
+            logger.debug(f"LunarCrush API failed: {e}")
 
-            stats = data["Data"][0]
+    # 备用: 尝试 CryptoCompare (需要付费)
+    cryptocmp_key = settings.cryptocmp_api_key
+    if cryptocmp_key:
+        try:
+            async with httpx.AsyncClient() as client:
+                headers = {"authorization": f"Apikey {cryptocmp_key}"}
 
-            # 解析数据
-            twitter_followers = stats.get("twitter_followers", 0)
-            reddit_users = stats.get("reddit_users", 0)
-            facebook_users = stats.get("facebook_users", 0)
+                # 尝试不同的社交数据端点
+                endpoints = [
+                    f"https://min-api.cryptocompare.com/data/social/coin/latest/",
+                    f"https://min-api.cryptocompare.com/data/social/coin/histo/day/",
+                ]
 
-            # 计算情绪分数
-            total_mentions = stats.get("code_repo_mentions", 0) + stats.get("followers", 0)
+                for endpoint_base in endpoints:
+                    try:
+                        response = await client.get(
+                            endpoint_base,
+                            params={"coinId": coin},
+                            headers=headers,
+                            timeout=10.0
+                        )
 
-            # 获取更多社交媒体数据
-            social_stats = {
-                "twitter_followers": twitter_followers,
-                "reddit_users": reddit_users,
-                "facebook_users": facebook_users,
-                "total_followers": twitter_followers + reddit_users + facebook_users,
-            }
+                        if response.status_code == 200:
+                            data = response.json()
+                            if data.get("Data") and len(data["Data"]) > 0:
+                                stats = data["Data"][0] if isinstance(data["Data"], list) else data["Data"]
 
-            # 计算情绪趋势 (基于24小时变化)
-            change_24h = stats.get("change", 0)
-            if change_24h > 5:
-                sentiment = "very_bullish"
-                sentiment_score = min(50, change_24h * 5)
-            elif change_24h > 2:
-                sentiment = "bullish"
-                sentiment_score = min(30, change_24h * 3)
-            elif change_24h > -2:
-                sentiment = "neutral"
-                sentiment_score = change_24h * 2
-            elif change_24h > -5:
-                sentiment = "bearish"
-                sentiment_score = max(-30, change_24h * 3)
-            else:
-                sentiment = "very_bearish"
-                sentiment_score = max(-50, change_24h * 5)
+                                twitter_followers = stats.get("twitter_followers", 0)
+                                reddit_users = stats.get("reddit_users", 0)
+                                total_followers = twitter_followers + reddit_users
 
-            return {
-                "symbol": symbol,
-                "cc_symbol": cc_symbol,
-                "sentiment": sentiment,
-                "sentiment_score": sentiment_score,
-                "change_24h": change_24h,
-                "social_stats": social_stats,
-                "mentions": {
-                    "total": total_mentions,
-                    "code_repo": stats.get("code_repo_mentions", 0),
-                    "followers": stats.get("followers", 0),
-                },
-                "source": "CryptoCompare",
-            }
+                                change_24h = stats.get("change", 0)
+                                if change_24h > 5:
+                                    sentiment = "very_bullish"
+                                    sentiment_score = min(50, change_24h * 5)
+                                elif change_24h > 2:
+                                    sentiment = "bullish"
+                                    sentiment_score = min(30, change_24h * 3)
+                                elif change_24h > -2:
+                                    sentiment = "neutral"
+                                    sentiment_score = change_24h * 2
+                                elif change_24h > -5:
+                                    sentiment = "bearish"
+                                    sentiment_score = max(-30, change_24h * 3)
+                                else:
+                                    sentiment = "very_bearish"
+                                    sentiment_score = max(-50, change_24h * 5)
 
-    except Exception as e:
-        logger.error(f"Error fetching social sentiment from CryptoCompare: {e}")
-        return await _get_simulated_social_sentiment(symbol)
+                                return {
+                                    "symbol": symbol,
+                                    "coin": coin,
+                                    "sentiment": sentiment,
+                                    "sentiment_score": sentiment_score,
+                                    "change_24h": change_24h,
+                                    "social_stats": {
+                                        "twitter_followers": twitter_followers,
+                                        "reddit_users": reddit_users,
+                                        "total_followers": total_followers,
+                                    },
+                                    "mentions": {
+                                        "total": total_followers,
+                                        "code_repo": stats.get("code_repo_mentions", 0),
+                                        "followers": stats.get("followers", 0),
+                                    },
+                                    "source": "CryptoCompare",
+                                    "available": True,
+                                }
+                    except Exception as e:
+                        logger.debug(f"Endpoint {endpoint_base} failed: {e}")
+                        continue
+        except Exception as e:
+            logger.debug(f"CryptoCompare social API failed: {e}")
 
-
-async def _get_simulated_social_sentiment(symbol: str) -> dict:
-    """获取模拟社交媒体情绪数据（后备方案）"""
-    import random
-
-    positive_mentions = random.randint(100, 1000)
-    negative_mentions = random.randint(50, 500)
-    neutral_mentions = random.randint(200, 800)
-
-    total_mentions = positive_mentions + negative_mentions + neutral_mentions
-
-    if total_mentions > 0:
-        positive_ratio = positive_mentions / total_mentions
-        negative_ratio = negative_mentions / total_mentions
-        neutral_ratio = neutral_mentions / total_mentions
-    else:
-        positive_ratio = negative_ratio = neutral_ratio = 0.33
-
-    sentiment_score = (positive_ratio - negative_ratio) * 100
-
-    if sentiment_score > 30:
-        sentiment = "very_bullish"
-    elif sentiment_score > 10:
-        sentiment = "bullish"
-    elif sentiment_score > -10:
-        sentiment = "neutral"
-    elif sentiment_score > -30:
-        sentiment = "bearish"
-    else:
-        sentiment = "very_bearish"
-
+    # 所有数据源都失败
     return {
+        "error": "Social sentiment data not available",
+        "available": False,
         "symbol": symbol,
-        "sentiment": sentiment,
-        "sentiment_score": sentiment_score,
-        "mentions": {
-            "positive": positive_mentions,
-            "negative": negative_mentions,
-            "neutral": neutral_mentions,
-            "total": total_mentions,
-        },
-        "ratios": {
-            "positive": positive_ratio,
-            "negative": negative_ratio,
-            "neutral": neutral_ratio,
-        },
-        "source": "Simulated",
-        "note": "Using simulated data. Configure CRYPTOCOMPARE_API_KEY for real data.",
+        "lunarcrush_status": "configured but unavailable - v4 API may require paid subscription or the API key needs to be regenerated",
+        "cryptocompare_status": "requires paid subscription for social data",
+        "message": "To enable social sentiment: (1) Upgrade LunarCrush subscription at https://lunarcrush.com/ or (2) Subscribe to CryptoCompare Hobby tier at https://www.cryptocompare.com/",
     }
 
 
@@ -278,7 +266,7 @@ async def get_news_sentiment(symbol: Optional[str] = None, limit: int = 10) -> d
         limit: 返回新闻数量
 
     Returns:
-        新闻情绪数据
+        新闻情绪数据，或错误信息
     """
     from vibe_trading.config.settings import get_settings
 
@@ -286,8 +274,11 @@ async def get_news_sentiment(symbol: Optional[str] = None, limit: int = 10) -> d
     api_key = settings.cryptocmp_api_key
 
     if not api_key:
-        # 没有配置 API key 时返回模拟数据
-        return await _get_simulated_news(symbol, limit)
+        return {
+            "error": "CRYPTOCOMPARE_API_KEY not configured",
+            "available": False,
+            "symbol": symbol,
+        }
 
     # 映射交易对符号到 CryptoCompare 格式
     symbol_map = {
@@ -320,15 +311,23 @@ async def get_news_sentiment(symbol: Optional[str] = None, limit: int = 10) -> d
             )
             data = response.json()
 
-            # 检查响应 - News API 返回的格式不同
+            # 检查响应
             if response.status_code != 200 or not data.get("Data"):
-                logger.warning(f"CryptoCompare News API error: status={response.status_code}, response={data}")
-                return await _get_simulated_news(symbol, limit)
+                logger.warning(f"CryptoCompare News API error: status={response.status_code}")
+                return {
+                    "error": f"API returned error status {response.status_code}",
+                    "available": False,
+                    "symbol": symbol,
+                }
 
             news_list = data.get("Data", [])
             if not news_list:
                 logger.warning("CryptoCompare returned empty news list")
-                return await _get_simulated_news(symbol, limit)
+                return {
+                    "error": "No news data available",
+                    "available": False,
+                    "symbol": symbol,
+                }
 
             # 如果指定了 symbol，过滤相关新闻
             filtered_news = []
@@ -390,61 +389,12 @@ async def get_news_sentiment(symbol: Optional[str] = None, limit: int = 10) -> d
                 },
                 "news": filtered_news,
                 "source": "CryptoCompare",
+                "available": True,
             }
 
     except Exception as e:
         logger.error(f"Error fetching news from CryptoCompare: {e}")
-        return await _get_simulated_news(symbol, limit)
-
-
-async def _get_simulated_news(symbol: Optional[str] = None, limit: int = 10) -> dict:
-    """获取模拟新闻数据（后备方案）"""
-    import random
-    from datetime import datetime, timedelta
-
-    simulated_news = []
-    sentiments = ["positive", "neutral", "negative"]
-
-    for i in range(limit):
-        if random.random() > 0.5:
-            title = f"{symbol or 'Crypto'} shows {'strength' if random.random() > 0.3 else 'weakness'} as market {'rallies' if random.random() > 0.5 else 'declines'}"
-        else:
-            title = f"Analysts see {'upside' if random.random() > 0.4 else 'downside'} for {symbol or 'crypto'} amid market volatility"
-
-        sentiment = random.choice(sentiments)
-
-        simulated_news.append({
-            "title": title,
-            "body": f"Market analysis for {symbol or 'crypto'}...",
-            "source": "Simulated",
-            "published_at": int((datetime.now() - timedelta(hours=random.randint(1, 24))).timestamp()),
-            "categories": ["Trading"],
-            "sentiment": sentiment,  # 添加缺失的字段
-        })
-
-    positive_count = sum(1 for n in simulated_news if n["sentiment"] == "positive")
-    negative_count = sum(1 for n in simulated_news if n["sentiment"] == "negative")
-    neutral_count = sum(1 for n in simulated_news if n["sentiment"] == "neutral")
-
-    overall_sentiment = "neutral"
-    if positive_count > negative_count + neutral_count:
-        overall_sentiment = "positive"
-    elif negative_count > positive_count + neutral_count:
-        overall_sentiment = "negative"
-
-    return {
-        "symbol": symbol or "crypto",
-        "overall_sentiment": overall_sentiment,
-        "news_count": len(simulated_news),
-        "sentiment_breakdown": {
-            "positive": positive_count,
-            "negative": negative_count,
-            "neutral": neutral_count,
-        },
-        "news": simulated_news,
-        "source": "Simulated",
-        "note": "Using simulated data. Configure CRYPTOCOMPARE_API_KEY for real data.",
-    }
+        return {"error": str(e), "available": False, "symbol": symbol}
 
 
 async def get_comprehensive_sentiment(symbol: str) -> dict:
@@ -467,24 +417,28 @@ async def get_comprehensive_sentiment(symbol: str) -> dict:
     # 计算综合情绪分数
     scores = []
     weights = []
+    available_sources = []
 
     # 恐惧贪婪指数 (-50 to +50)
     if "value" in fng_data:
         fng_score = (fng_data["value"] - 50)
         scores.append(fng_score)
         weights.append(0.3)
+        available_sources.append("fear_greed")
 
     # 社交媒体情绪 (-100 to +100)
-    if "sentiment_score" in social_data:
+    if social_data.get("available") and "sentiment_score" in social_data:
         scores.append(social_data["sentiment_score"])
         weights.append(0.4)
+        available_sources.append("social")
 
     # 新闻情绪 (-100 to +100)
     news_sentiment_map = {"positive": 50, "neutral": 0, "negative": -50}
-    if "overall_sentiment" in news_data:
+    if news_data.get("available") and "overall_sentiment" in news_data:
         news_score = news_sentiment_map.get(news_data["overall_sentiment"], 0)
         scores.append(news_score)
         weights.append(0.3)
+        available_sources.append("news")
 
     # 计算加权平均
     if scores and weights:
@@ -515,6 +469,7 @@ async def get_comprehensive_sentiment(symbol: str) -> dict:
         "overall_sentiment": overall_sentiment,
         "sentiment_score": weighted_score,
         "signal": signal,
+        "available_sources": available_sources,
         "components": {
             "fear_greed_index": fng_data,
             "social_sentiment": social_data,
@@ -525,23 +480,13 @@ async def get_comprehensive_sentiment(symbol: str) -> dict:
 
 async def get_trending_symbols() -> dict:
     """
-    获取热门交易对（模拟）
+    获取热门交易对
 
     Returns:
-        热门交易对列表
+        热门交易对列表，或错误信息
     """
-    # 模拟热门交易对数据
-    # 实际应用中应该接入真实的数据源
-
-    trending = [
-        {"symbol": "BTCUSDT", "volume_change": "+25%", "mentions": 5000},
-        {"symbol": "ETHUSDT", "volume_change": "+18%", "mentions": 3500},
-        {"symbol": "SOLUSDT", "volume_change": "+45%", "mentions": 2800},
-        {"symbol": "XRPUSDT", "volume_change": "+12%", "mentions": 1500},
-        {"symbol": "DOGEUSDT", "volume_change": "+8%", "mentions": 2200},
-    ]
-
+    # 此功能需要接入真实数据源
     return {
-        "trending": trending,
-        "note": "This is simulated data. In production, integrate with real data sources.",
+        "error": "Trending symbols data not available - requires integration with a real data source",
+        "available": False,
     }

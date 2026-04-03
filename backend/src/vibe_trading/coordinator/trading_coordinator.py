@@ -471,14 +471,18 @@ class TradingCoordinator:
             bear_history += f"\n{bear_resp}"
 
         # 研究经理裁决
-        investment_plan = await self._researchers["manager"].make_decision(
+        result = await self._researchers["manager"].make_decision(
             context=context_str,
+            bull_agent=self._researchers.get("bull"),
+            bear_agent=self._researchers.get("bear"),
             bull_history=bull_history,
             bear_history=bear_history,
             analyst_reports=analyst_reports,
+            market_data=context.market_data,
         )
 
-        return investment_plan
+        # 返回决策文本
+        return result.get("decision_text", "No decision made")
 
     async def _run_risk_assessment(
         self, investment_plan: str, current_positions: List[Dict], account_balance: float

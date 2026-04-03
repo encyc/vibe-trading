@@ -269,3 +269,299 @@ async def calculate_pivots(
         "resistance": {"r1": r1, "r2": r2, "r3": r3},
         "support": {"s1": s1, "s2": s2, "s3": s3},
     }
+
+
+async def detect_candlestick_patterns(
+    symbol: str,
+    interval: str = "30m",
+    lookback: int = 20,
+    storage: Optional[KlineStorage] = None,
+) -> dict:
+    """
+    检测K线形态
+
+    识别常见的反转和持续形态，如头肩顶/底、双顶/底、吞没形态等。
+
+    Args:
+        symbol: 交易对符号
+        interval: K线间隔
+        lookback: 回溯K线数量
+        storage: K线存储
+
+    Returns:
+        检测到的K线形态
+    """
+    if not storage:
+        return {"error": "Storage not configured"}
+
+    query = KlineQuery(symbol=symbol, interval=interval, limit=lookback)
+    klines = await storage.query_klines(query)
+
+    if len(klines) < 10:
+        return {"error": f"Insufficient data: {len(klines)} bars, need at least 10"}
+
+    # 提取数据
+    opens = [k.open for k in klines]
+    highs = [k.high for k in klines]
+    lows = [k.low for k in klines]
+    closes = [k.close for k in klines]
+    volumes = [k.volume for k in klines]
+
+    # 计算K线形态
+    ti = TechnicalIndicators()
+    ti.load_data(opens, highs, lows, closes, volumes)
+    patterns = ti.detect_candlestick_patterns(lookback)
+
+    return {
+        "symbol": symbol,
+        "interval": interval,
+        "timestamp": klines[-1].close_time,
+        "current_price": closes[-1],
+        **patterns,
+    }
+
+
+async def detect_divergence(
+    symbol: str,
+    interval: str = "30m",
+    lookback: int = 20,
+    indicator: str = "rsi",
+    storage: Optional[KlineStorage] = None,
+) -> dict:
+    """
+    检测指标背离
+
+    检测RSI或MACD与价格的背离信号，这是重要的反转预警信号。
+
+    Args:
+        symbol: 交易对符号
+        interval: K线间隔
+        lookback: 回溯K线数量
+        indicator: 检测背离的指标 (rsi, macd)
+        storage: K线存储
+
+    Returns:
+        背离检测结果
+    """
+    if not storage:
+        return {"error": "Storage not configured"}
+
+    query = KlineQuery(symbol=symbol, interval=interval, limit=lookback + 20)
+    klines = await storage.query_klines(query)
+
+    if len(klines) < lookback + 10:
+        return {"error": f"Insufficient data: {len(klines)} bars"}
+
+    # 提取数据
+    opens = [k.open for k in klines]
+    highs = [k.high for k in klines]
+    lows = [k.low for k in klines]
+    closes = [k.close for k in klines]
+    volumes = [k.volume for k in klines]
+
+    # 计算背离
+    ti = TechnicalIndicators()
+    ti.load_data(opens, highs, lows, closes, volumes)
+    divergence = ti.detect_divergence(lookback, indicator)
+
+    return {
+        "symbol": symbol,
+        "interval": interval,
+        "timestamp": klines[-1].close_time,
+        "current_price": closes[-1],
+        **divergence,
+    }
+
+
+async def analyze_volume_patterns(
+    symbol: str,
+    interval: str = "30m",
+    lookback: int = 20,
+    storage: Optional[KlineStorage] = None,
+) -> dict:
+    """
+    分析成交量模式
+
+    检测成交量异常（放量/缩量）和成交量确认信号。
+
+    Args:
+        symbol: 交易对符号
+        interval: K线间隔
+        lookback: 回溯K线数量
+        storage: K线存储
+
+    Returns:
+        成交量分析结果
+    """
+    if not storage:
+        return {"error": "Storage not configured"}
+
+    query = KlineQuery(symbol=symbol, interval=interval, limit=lookback + 20)
+    klines = await storage.query_klines(query)
+
+    if len(klines) < lookback + 10:
+        return {"error": f"Insufficient data: {len(klines)} bars"}
+
+    # 提取数据
+    opens = [k.open for k in klines]
+    highs = [k.high for k in klines]
+    lows = [k.low for k in klines]
+    closes = [k.close for k in klines]
+    volumes = [k.volume for k in klines]
+
+    # 分析成交量
+    ti = TechnicalIndicators()
+    ti.load_data(opens, highs, lows, closes, volumes)
+    volume_analysis = ti.analyze_volume(lookback)
+
+    return {
+        "symbol": symbol,
+        "interval": interval,
+        "timestamp": klines[-1].close_time,
+        "current_price": closes[-1],
+        **volume_analysis,
+    }
+
+
+async def get_comprehensive_technical_analysis(
+    symbol: str,
+    interval: str = "30m",
+    storage: Optional[KlineStorage] = None,
+) -> dict:
+    """
+    获取综合技术分析
+
+    整合所有技术分析工具，提供完整的技术分析报告。
+
+    Args:
+        symbol: 交易对符号
+        interval: K线间隔
+        storage: K线存储
+
+    Returns:
+        综合技术分析报告
+    """
+    if not storage:
+        return {"error": "Storage not configured"}
+
+    # 并行获取所有分析
+    import asyncio
+
+    results = await asyncio.gather(
+        get_technical_indicators(symbol, interval, 100, storage),
+        analyze_trend(symbol, interval, storage),
+        detect_candlestick_patterns(symbol, interval, 30, storage),
+        detect_divergence(symbol, interval, 30, "rsi", storage),
+        detect_divergence(symbol, interval, 30, "macd", storage),
+        analyze_volume_patterns(symbol, interval, 30, storage),
+        detect_support_resistance(symbol, interval, 100, storage),
+        calculate_pivots(symbol, interval, storage),
+        return_exceptions=True,
+    )
+
+    # 整合结果
+    indicators_data = results[0] if not isinstance(results[0], Exception) else {}
+    trend_data = results[1] if not isinstance(results[1], Exception) else {}
+    patterns_data = results[2] if not isinstance(results[2], Exception) else {}
+    rsi_divergence = results[3] if not isinstance(results[3], Exception) else {}
+    macd_divergence = results[4] if not isinstance(results[4], Exception) else {}
+    volume_data = results[5] if not isinstance(results[5], Exception) else {}
+    sr_data = results[6] if not isinstance(results[6], Exception) else {}
+    pivots_data = results[7] if not isinstance(results[7], Exception) else {}
+
+    # 计算综合信号
+    signals = []
+    confidence_score = 0
+
+    # 从趋势分析获取信号
+    if "analysis" in trend_data:
+        trend_analysis = trend_data["analysis"]
+        trend = trend_analysis.get("trend", "neutral")
+
+        if trend == "strong_up":
+            signals.append("强烈看涨趋势")
+            confidence_score += 2
+        elif trend == "up":
+            signals.append("看涨趋势")
+            confidence_score += 1
+        elif trend == "strong_down":
+            signals.append("强烈看跌趋势")
+            confidence_score -= 2
+        elif trend == "down":
+            signals.append("看跌趋势")
+            confidence_score -= 1
+
+    # 从K线形态获取信号
+    if "patterns" in patterns_data:
+        for pattern in patterns_data["patterns"].get("reversal", []):
+            if pattern["signal"] == "bullish":
+                signals.append(f"K线形态: {pattern['type']} (看涨)")
+                confidence_score += 1
+            elif pattern["signal"] == "bearish":
+                signals.append(f"K线形态: {pattern['type']} (看跌)")
+                confidence_score -= 1
+
+    # 从背离获取信号
+    if "divergences" in rsi_divergence:
+        if rsi_divergence["divergences"]["bullish"]:
+            signals.append("RSI看涨背离")
+            confidence_score += len(rsi_divergence["divergences"]["bullish"])
+        if rsi_divergence["divergences"]["bearish"]:
+            signals.append("RSI看跌背离")
+            confidence_score -= len(rsi_divergence["divergences"]["bearish"])
+
+    if "divergences" in macd_divergence:
+        if macd_divergence["divergences"]["bullish"]:
+            signals.append("MACD看涨背离")
+            confidence_score += len(macd_divergence["divergences"]["bullish"])
+        if macd_divergence["divergences"]["bearish"]:
+            signals.append("MACD看跌背离")
+            confidence_score -= len(macd_divergence["divergences"]["bearish"])
+
+    # 从成交量获取信号
+    if "patterns" in volume_data:
+        for pattern in volume_data["patterns"]:
+            if "放量上涨" in pattern or "资金流入" in pattern:
+                confidence_score += 1
+                signals.append(f"成交量: {pattern}")
+            elif "放量下跌" in pattern or "资金流出" in pattern:
+                confidence_score -= 1
+                signals.append(f"成交量: {pattern}")
+
+    # 确定综合信号
+    if confidence_score >= 3:
+        overall_signal = "strong_buy"
+        overall_text = "强烈买入"
+    elif confidence_score >= 1:
+        overall_signal = "buy"
+        overall_text = "买入"
+    elif confidence_score <= -3:
+        overall_signal = "strong_sell"
+        overall_text = "强烈卖出"
+    elif confidence_score <= -1:
+        overall_signal = "sell"
+        overall_text = "卖出"
+    else:
+        overall_signal = "hold"
+        overall_text = "持有观望"
+
+    return {
+        "symbol": symbol,
+        "interval": interval,
+        "timestamp": indicators_data.get("timestamp"),
+        "current_price": indicators_data.get("current_price"),
+        "overall_signal": overall_signal,
+        "overall_text": overall_text,
+        "confidence_score": confidence_score,
+        "signals": signals,
+        "indicators": indicators_data.get("indicators", {}),
+        "trend": trend_data.get("analysis", {}),
+        "patterns": patterns_data.get("patterns", {}),
+        "divergence": {
+            "rsi": rsi_divergence.get("divergences", {}),
+            "macd": macd_divergence.get("divergences", {}),
+        },
+        "volume": volume_data,
+        "support_resistance": sr_data,
+        "pivots": pivots_data,
+    }
