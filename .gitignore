@@ -58,3 +58,8 @@ Thumbs.db
 .DS_Store
 backend/src/pi_ai/llm.yaml
 cache/
+
+test_*
+docs/TECHNICAL_DOCUMENTATION.md
+test_*.py
+backend/test_*.py
