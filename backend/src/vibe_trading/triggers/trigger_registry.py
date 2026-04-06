@@ -8,7 +8,13 @@ import logging
 from typing import Dict, List, Optional, Callable
 from dataclasses import dataclass
 
-from .base_trigger import BaseTrigger, TriggerEvent, TriggerContext, TriggerPriority
+from .base_trigger import (
+    BaseTrigger,
+    TriggerEvent,
+    TriggerContext,
+    TriggerPriority,
+    ConfirmationTracker,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +40,27 @@ class TriggerRegistry:
     - Statistics and monitoring
     """
     
-    def __init__(self):
-        """Initialize trigger registry"""
+    def __init__(self, enable_confirmation: bool = True):
+        """
+        Initialize trigger registry
+
+        Args:
+            enable_confirmation: Whether to enable trigger confirmation
+        """
         self._triggers: Dict[str, BaseTrigger] = {}
         self._lock = asyncio.Lock()
         self._event_handlers: List[Callable] = []
-        
-        logger.info("TriggerRegistry initialized")
+
+        # Confirmation tracker
+        self.enable_confirmation = enable_confirmation
+        self._confirmation_tracker: Optional[ConfirmationTracker] = None
+        if enable_confirmation:
+            self._confirmation_tracker = ConfirmationTracker(
+                required_confirmations=3,
+                max_age_seconds=300,
+            )
+
+        logger.info(f"TriggerRegistry initialized (confirmation={enable_confirmation})")
     
     def register(self, trigger: BaseTrigger) -> bool:
         """
@@ -180,31 +200,58 @@ class TriggerRegistry:
     ) -> List[TriggerEvent]:
         """
         Evaluate all enabled triggers
-        
+
         Args:
             context: Trigger context
-            
+
         Returns:
-            List of trigger events (sorted by priority)
+            List of confirmed trigger events (sorted by priority)
         """
-        events = []
-        
+        raw_events = []
+
+        # 收集所有触发的事件
         for trigger in self.get_enabled_triggers():
             try:
                 event = await trigger.evaluate(context)
                 if event:
-                    events.append(event)
+                    raw_events.append(event)
             except Exception as e:
                 logger.error(f"Error evaluating trigger {trigger.name}: {e}", exc_info=True)
-        
-        # Sort by priority (descending)
-        events.sort(key=lambda e: e.severity, reverse=True)
-        
-        # Notify handlers
-        for event in events:
+
+        confirmed_events = []
+
+        # 使用确认机制过滤事件
+        if self._confirmation_tracker:
+            for event in raw_events:
+                is_confirmed, confirmation = await self._confirmation_tracker.add_event(event)
+
+                if is_confirmed:
+                    # 触发已确认，添加到确认列表
+                    confirmed_events.append(event)
+                    logger.info(
+                        f"Trigger confirmed: {event.trigger_name} "
+                        f"(severity={event.severity.value})"
+                    )
+                    # 重置确认计数
+                    await self._confirmation_tracker.reset_confirmation(event.trigger_name)
+                else:
+                    # 触发未确认，仅记录日志
+                    logger.debug(
+                        f"Trigger pending confirmation: {event.trigger_name} "
+                        f"({confirmation.confirmation_count}/{confirmation.required_confirmations})"
+                    )
+        else:
+            # 未启用确认机制，直接返回所有事件
+            confirmed_events = raw_events
+
+        # 按严重程度排序
+        confirmed_events.sort(key=lambda e: e.severity, reverse=True)
+
+        # 通知处理器
+        for event in confirmed_events:
             await self._notify_handlers(event)
-        
-        return events
+
+        return confirmed_events
     
     async def evaluate_trigger(
         self,
@@ -306,6 +353,27 @@ class TriggerRegistry:
         self._triggers.clear()
         self._event_handlers.clear()
         logger.info("TriggerRegistry cleared")
+
+    async def start_confirmation_tracker(self) -> None:
+        """Start confirmation tracker cleanup task"""
+        if self._confirmation_tracker:
+            await self._confirmation_tracker.start_cleanup_task()
+
+    async def stop_confirmation_tracker(self) -> None:
+        """Stop confirmation tracker cleanup task"""
+        if self._confirmation_tracker:
+            await self._confirmation_tracker.stop_cleanup_task()
+
+    def get_confirmation_statistics(self) -> Optional[Dict]:
+        """
+        Get confirmation tracker statistics
+
+        Returns:
+            Dictionary of statistics or None if confirmation disabled
+        """
+        if self._confirmation_tracker:
+            return self._confirmation_tracker.get_statistics()
+        return None
     
     def __len__(self) -> int:
         return len(self._triggers)

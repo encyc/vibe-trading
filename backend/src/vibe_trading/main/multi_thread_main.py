@@ -9,7 +9,8 @@ Launches and manages all threads:
 import asyncio
 import logging
 import signal
-from typing import Dict, Optional
+from datetime import datetime
+from typing import Dict, List, Optional
 
 from pi_logger import get_logger, info, success, warning, separator
 
@@ -28,6 +29,8 @@ from vibe_trading.triggers.risk_triggers import (
     MarginRatioTrigger,
     DrawdownTrigger,
 )
+from vibe_trading.triggers.base_trigger import TriggerContext
+from vibe_trading.tools import market_data_tools
 
 logger = logging.getLogger(__name__)
 log = get_logger("MultiThreadMain")
@@ -72,6 +75,8 @@ class MultiThreadedTradingSystem:
         # State
         self._running = False
         self._shutdown_event = asyncio.Event()
+        self._last_price: Optional[float] = None
+        self._last_price_update: Optional[float] = None  # timestamp
         
         log.info(f"MultiThreadedTradingSystem initialized for {symbol}")
     
@@ -200,9 +205,130 @@ class MultiThreadedTradingSystem:
     
     async def _check_triggers(self) -> None:
         """Check all triggers"""
-        # This would build trigger context and evaluate triggers
-        # For now, it's a placeholder
-        pass
+        try:
+            # 获取当前价格和持仓
+            current_price = await self._get_current_price()
+            if current_price is None:
+                logger.debug("无法获取当前价格，跳过触发器检查")
+                return
+
+            previous_price = self._last_price or current_price
+
+            # 获取持仓和账户余额
+            positions = await self._get_positions()
+            account_balance = await self._get_account_balance()
+
+            # 构建触发器上下文
+            context = TriggerContext(
+                symbol=self.symbol,
+                current_price=current_price,
+                previous_price=previous_price,
+                timestamp=int(datetime.now().timestamp() * 1000),
+                positions=positions,
+                account_balance=account_balance,
+            )
+
+            # 添加额外的上下文数据
+            context.set("last_price_update", self._last_price_update)
+            context.set("open", self._last_price)  # 简化，实际应该获取开盘价
+            context.set("high", current_price * 1.01)  # 简化
+            context.set("low", current_price * 0.99)  # 简化
+
+            # 更新价格记录
+            self._last_price = current_price
+            self._last_price_update = datetime.now().timestamp()
+
+            # 评估触发器
+            events = await self.trigger_registry.evaluate_all(context)
+
+            # 处理触发的事件
+            for event in events:
+                await self._handle_trigger_event(event)
+
+        except Exception as e:
+            logger.error(f"检查触发器时出错: {e}", exc_info=True)
+
+    async def _get_current_price(self) -> Optional[float]:
+        """
+        获取当前价格
+
+        Returns:
+            当前价格或None
+        """
+        try:
+            result = await market_data_tools.get_current_price(self.symbol)
+            if result and "price" in result:
+                return float(result["price"])
+        except Exception as e:
+            logger.warning(f"获取当前价格失败: {e}")
+        return None
+
+    async def _get_positions(self) -> List[Dict]:
+        """
+        获取当前持仓
+
+        Returns:
+            持仓列表
+        """
+        # TODO: 实现真实的持仓获取
+        # 这里需要与订单执行器集成
+        return []
+
+    async def _get_account_balance(self) -> float:
+        """
+        获取账户余额
+
+        Returns:
+            账户余额
+        """
+        # TODO: 实现真实的余额获取
+        # 这里需要与Binance API集成
+        return 10000.0
+
+    async def _handle_trigger_event(self, event) -> None:
+        """
+        处理触发事件
+
+        Args:
+            event: 触发事件
+        """
+        try:
+            logger.warning(
+                f"触发器激活: {event.trigger_name} "
+                f"(严重程度={event.severity.value}, symbol={event.symbol})"
+            )
+
+            # 将事件添加到事件队列
+            await self.event_queue.put(event)
+
+            # 记录事件到共享状态
+            await self.shared_state.set(
+                f"last_trigger_{event.trigger_name}",
+                event.to_dict(),
+                ttl_seconds=3600,  # 保留1小时
+                notify=True,
+            )
+
+            # 如果是CRITICAL或HIGH级别，发送警告消息
+            if event.severity.value in ["critical", "high"]:
+                from vibe_trading.agents.messaging import get_message_broker, MessageType
+
+                message_broker = get_message_broker()
+                message_broker.send(
+                    sender="event_thread",
+                    receiver="all",
+                    message_type=MessageType.WARNING,
+                    content={
+                        "type": "trigger_fired",
+                        "trigger_name": event.trigger_name,
+                        "severity": event.severity.value,
+                        "data": event.data,
+                    },
+                    correlation_id=event.event_id,
+                )
+
+        except Exception as e:
+            logger.error(f"处理触发事件时出错: {e}", exc_info=True)
     
     async def stop(self) -> None:
         """Stop all threads"""

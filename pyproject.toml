@@ -49,6 +49,7 @@ include = ["src/"]
 
 [project.scripts]
 vibe-trade = "vibe_trading.cli:app"
+vibe-trading = "vibe_trading.cli:app"
 
 [tool.uv]
 dev-dependencies = [

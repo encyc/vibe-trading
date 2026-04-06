@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,226 @@ class TriggerEvent:
             symbol=data.get("symbol"),
             correlation_id=data.get("correlation_id"),
         )
+
+
+@dataclass
+class TriggerConfirmation:
+    """
+    Trigger confirmation state
+
+    Tracks multiple trigger events to avoid false positives.
+    """
+    trigger_name: str
+    events: List[TriggerEvent] = field(default_factory=list)
+    first_seen_at: Optional[datetime] = None
+    confirmation_count: int = 0
+    confirmed: bool = False
+
+    def add_event(self, event: TriggerEvent) -> bool:
+        """
+        Add a new event and check if confirmed
+
+        Args:
+            event: Trigger event
+
+        Returns:
+            True if trigger is now confirmed
+        """
+        if self.first_seen_at is None:
+            self.first_seen_at = datetime.now()
+
+        self.events.append(event)
+        self.confirmation_count += 1
+
+        return self.confirmation_count >= self.required_confirmations
+
+    @property
+    def required_confirmations(self) -> int:
+        """Required number of confirmations"""
+        return 3  # 默认需要3次确认
+
+    def is_stale(self, max_age_seconds: int = 300) -> bool:
+        """
+        Check if confirmation is stale
+
+        Args:
+            max_age_seconds: Maximum age in seconds
+
+        Returns:
+            True if confirmation is stale
+        """
+        if self.first_seen_at is None:
+            return True
+
+        age = (datetime.now() - self.first_seen_at).total_seconds()
+        return age > max_age_seconds
+
+    def reset(self) -> None:
+        """Reset confirmation state"""
+        self.events.clear()
+        self.first_seen_at = None
+        self.confirmation_count = 0
+        self.confirmed = False
+
+
+class ConfirmationTracker:
+    """
+    Trigger confirmation tracker
+
+    Implements false trigger avoidance by requiring multiple
+    confirmations before executing an action.
+    """
+
+    def __init__(
+        self,
+        required_confirmations: int = 3,
+        max_age_seconds: int = 300,
+        cleanup_interval: int = 60,
+    ):
+        """
+        Initialize confirmation tracker
+
+        Args:
+            required_confirmations: Number of confirmations required
+            max_age_seconds: Maximum age for pending confirmations
+            cleanup_interval: Cleanup interval in seconds
+        """
+        self.required_confirmations = required_confirmations
+        self.max_age_seconds = max_age_seconds
+        self.cleanup_interval = cleanup_interval
+
+        self._confirmations: Dict[str, TriggerConfirmation] = {}
+        self._lock = asyncio.Lock()
+        self._cleanup_task: Optional[asyncio.Task] = None
+
+        logger.info(
+            f"ConfirmationTracker initialized (confirmations={required_confirmations}, "
+            f"max_age={max_age_seconds}s)"
+        )
+
+    async def add_event(self, event: TriggerEvent) -> tuple[bool, TriggerConfirmation]:
+        """
+        Add trigger event and check if confirmed
+
+        Args:
+            event: Trigger event
+
+        Returns:
+            Tuple of (is_confirmed, confirmation_state)
+        """
+        async with self._lock:
+            key = event.trigger_name
+
+            # Get or create confirmation
+            if key not in self._confirmations:
+                self._confirmations[key] = TriggerConfirmation(
+                    trigger_name=key,
+                    required_confirmations=self.required_confirmations,
+                )
+
+            confirmation = self._confirmations[key]
+
+            # Add event
+            is_confirmed = confirmation.add_event(event)
+            confirmation.confirmed = is_confirmed
+
+            if is_confirmed:
+                logger.info(
+                    f"Trigger confirmed: {key} "
+                    f"(after {confirmation.confirmation_count} events)"
+                )
+
+            return is_confirmed, confirmation
+
+    async def get_confirmation(self, trigger_name: str) -> Optional[TriggerConfirmation]:
+        """
+        Get confirmation state for a trigger
+
+        Args:
+            trigger_name: Trigger name
+
+        Returns:
+            TriggerConfirmation or None
+        """
+        async with self._lock:
+            return self._confirmations.get(trigger_name)
+
+    async def reset_confirmation(self, trigger_name: str) -> None:
+        """
+        Reset confirmation for a trigger
+
+        Args:
+            trigger_name: Trigger name
+        """
+        async with self._lock:
+            if trigger_name in self._confirmations:
+                self._confirmations[trigger_name].reset()
+                logger.debug(f"Reset confirmation for: {trigger_name}")
+
+    async def cleanup_stale(self) -> None:
+        """Remove stale confirmations"""
+        async with self._lock:
+            stale_keys = []
+
+            for key, confirmation in self._confirmations.items():
+                if confirmation.is_stale(self.max_age_seconds):
+                    stale_keys.append(key)
+
+            for key in stale_keys:
+                del self._confirmations[key]
+                logger.debug(f"Cleaned up stale confirmation: {key}")
+
+            if stale_keys:
+                logger.info(f"Cleaned up {len(stale_keys)} stale confirmations")
+
+    async def start_cleanup_task(self) -> None:
+        """Start periodic cleanup task"""
+        if self._cleanup_task is not None:
+            return
+
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        logger.info("Confirmation tracker cleanup task started")
+
+    async def stop_cleanup_task(self) -> None:
+        """Stop cleanup task"""
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+            self._cleanup_task = None
+            logger.info("Confirmation tracker cleanup task stopped")
+
+    async def _cleanup_loop(self) -> None:
+        """Cleanup loop"""
+        while True:
+            try:
+                await asyncio.sleep(self.cleanup_interval)
+                await self.cleanup_stale()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in cleanup loop: {e}", exc_info=True)
+
+    def get_statistics(self) -> Dict:
+        """
+        Get tracker statistics
+
+        Returns:
+            Dictionary of statistics
+        """
+        return {
+            "total_confirmations": len(self._confirmations),
+            "confirmed_count": sum(
+                1 for c in self._confirmations.values() if c.confirmed
+            ),
+            "pending_count": sum(
+                1 for c in self._confirmations.values() if not c.confirmed
+            ),
+            "required_confirmations": self.required_confirmations,
+            "max_age_seconds": self.max_age_seconds,
+        }
 
 
 class BaseTrigger(ABC):
