@@ -14,7 +14,7 @@ from vibe_trading.coordinator.simplified_coordinator import (
 )
 from vibe_trading.coordinator.thread_manager import ThreadManager, get_thread_manager
 from vibe_trading.agents.messaging import get_message_broker, MessageType
-from vibe_trading.data_sources.binance_client import BinanceClient
+from vibe_trading.websocket_manager import get_websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -101,32 +101,35 @@ class OnBarThread:
     async def _run_loop(self) -> None:
         """Main loop for K-line processing"""
         try:
-            # Subscribe to Binance K-line
-            client = BinanceClient()
-            
-            async for kline in client.subscribe_klines(self.symbol, self.interval):
-                if not self._running:
-                    break
-                
-                try:
-                    # Check emergency mode
-                    if await self._is_emergency_mode():
-                        self._emergency_stops += 1
-                        logger.info("Emergency mode active, skipping normal flow")
-                        continue
-                    
-                    # Process K-line
-                    await self._process_kline(kline)
-                    
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    logger.error(f"Error processing K-line: {e}", exc_info=True)
-                    
+            # Get WebSocket manager
+            ws_manager = get_websocket_manager(
+                api_key=None,  # Paper trading mode
+                api_secret=None,
+                testnet=True,
+            )
+
+            # Subscribe to K-line stream
+            await ws_manager.subscribe_kline(
+                symbol=self.symbol,
+                interval=self.interval,
+                callback=self._process_kline,
+            )
+
+            # Start WebSocket
+            await ws_manager.start()
+
+            # Keep running while thread is active
+            while self._running:
+                await asyncio.sleep(1)
+
         except asyncio.CancelledError:
             logger.info("OnBarThread cancelled")
         except Exception as e:
             logger.error(f"Error in OnBarThread loop: {e}", exc_info=True)
+        finally:
+            # Stop WebSocket
+            if 'ws_manager' in locals():
+                await ws_manager.stop()
     
     async def _process_kline(self, kline) -> None:
         """

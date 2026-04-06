@@ -59,16 +59,19 @@ class MacroAnalysisThread:
     
     async def initialize(self) -> None:
         """Initialize the thread"""
+        # Initialize storage
+        await self.storage.init()
+
         # Create tool context
         self._tool_context = ToolContext(
             symbol=self.symbol,
             interval="1h",
         )
-        
+
         # Initialize macro agent
         self._agent = MacroAnalysisAgent()
         await self._agent.initialize(self._tool_context, enable_streaming=False)
-        
+
         logger.info("MacroAnalysisThread initialized")
     
     async def start(self) -> None:

@@ -9,9 +9,8 @@ from datetime import datetime
 from typing import Callable, Dict, List, Optional, Set
 from dataclasses import dataclass, field
 
-from binance.client import AsyncClient
+from binance import AsyncClient
 from binance import BinanceSocketManager
-from binance.streams import BinanceSocketManager
 
 from vibe_trading.data_sources.binance_client import Kline
 from pi_logger import get_logger, info, warning, error, success
@@ -77,7 +76,8 @@ class WebSocketManager:
                 testnet=self.testnet,
             )
             self._bsm = BinanceSocketManager(self._client)
-            log.success("Binance WebSocket客户端初始化成功")
+            mode = "测试网" if self.testnet else "实盘网"
+            log.success(f"Binance WebSocket客户端初始化成功 ({mode})")
         except Exception as e:
             log.error(f"WebSocket客户端初始化失败: {e}")
             raise
@@ -108,7 +108,7 @@ class WebSocketManager:
             callback=callback,
         )
 
-        log.success(f"已订阅 {symbol} {interval} K线流")
+        log.success(f"✓ 已订阅 {symbol} {interval} K线流 (流ID: {stream_key})", tag="WebSocket")
 
     async def unsubscribe_kline(self, symbol: str, interval: str) -> None:
         """取消订阅K线流"""
@@ -168,27 +168,60 @@ class WebSocketManager:
         for stream_key, config in self._streams.items():
             if not config.enabled:
                 continue
-            streams.append(stream_key)
+            streams.append((stream_key, config))
 
         if not streams:
             return
 
-        # 创建多流socket
-        stream_path = "/".join(streams)
-        socket = self._bsm.multiplex_socket(streams)
+        log.success(f"WebSocket已连接: {len(streams)} 个流", tag="WebSocket")
 
-        log.success(f"WebSocket已连接: {len(streams)} 个流")
+        # 处理消息 - 使用单流方式
+        for stream_key, config in streams:
+            if not self._running:
+                break
+            
+            try:
+                # 解析stream_key (格式: btcusdt@kline_30m)
+                parts = stream_key.split('@')
+                if len(parts) != 2 or not parts[1].startswith('kline_'):
+                    logger.warning(f"跳过不支持的流: {stream_key}")
+                    continue
+                
+                symbol = parts[0].upper()
+                interval = parts[1].replace('kline_', '')
+                
+                log.info(f"正在连接: {symbol} {interval} K线流...", tag="WebSocket")
+                
+                # 创建K线socket
+                socket = self._bsm.kline_socket(symbol=symbol, interval=interval)
+                
+                async with socket as stream:
+                    log.success(f"✓ 已建立连接: {symbol} {interval}", tag="WebSocket")
+                    
+                    while self._running:
+                        try:
+                            msg = await stream.recv()
+                            if not self._running:
+                                break
 
-        # 处理消息
-        async with socket as stream:
-            async for msg in stream:
-                if not self._running:
+                            try:
+                                # 构造消息格式以匹配_handle_message的期望
+                                wrapped_msg = {
+                                    "stream": stream_key,
+                                    "data": msg
+                                }
+                                await self._handle_message(wrapped_msg)
+                            except Exception as e:
+                                logger.error(f"处理消息失败: {e}", exc_info=True)
+                        except Exception as e:
+                            if not self._running:
+                                break
+                            logger.error(f"接收消息失败: {e}")
+                            break
+            except Exception as e:
+                if self._running:
+                    logger.error(f"连接流 {stream_key} 失败: {e}")
                     break
-
-                try:
-                    await self._handle_message(msg)
-                except Exception as e:
-                    logger.error(f"处理消息失败: {e}", exc_info=True)
 
     async def _handle_message(self, msg: dict) -> None:
         """处理WebSocket消息"""
@@ -221,15 +254,37 @@ class WebSocketManager:
             is_final=kline_data.get("x", False),
         )
 
+        # 打印K线数据（每次更新都打印）
+        status_icon = "✓" if kline.is_final else "·"
+        price_change = kline.close - kline.open
+        price_change_pct = (price_change / kline.open) * 100 if kline.open > 0 else 0
+        change_icon = "↑" if price_change >= 0 else "↓"
+        change_color = "green" if price_change >= 0 else "red"
+        
+        logger.debug(
+            f"{status_icon} K线: {kline.symbol} {kline.interval} "
+            f"开:{kline.open:.2f} 高:{kline.high:.2f} 低:{kline.low:.2f} 收:{kline.close:.2f} "
+            f"{change_icon}{price_change_pct:+.2f}% 量:{kline.volume:.2f} "
+            f"[{'完成' if kline.is_final else '进行中'}]"
+        )
+
         # 只在K线完成时触发回调
         if kline.is_final:
+            log.success(
+                f"📊 K线完成: {kline.symbol} {kline.interval} "
+                f"收:{kline.close:.2f} {change_icon}{price_change_pct:+.2f}% 量:{kline.volume:.2f}",
+                tag="KLine"
+            )
+            
             stream_config = self._streams.get(stream)
             if stream_config and stream_config.callback:
                 try:
+                    logger.info(f"触发回调处理: {kline.symbol} @ ${kline.close:.2f}")
                     # 如果是协程，await它
                     result = stream_config.callback(kline)
                     if asyncio.iscoroutine(result):
                         await result
+                    logger.info(f"回调处理完成")
                 except Exception as e:
                     logger.error(f"回调执行失败: {e}", exc_info=True)
 

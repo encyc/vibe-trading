@@ -62,7 +62,7 @@ class EmergencyDecisionAgent:
             config = AgentConfig(
                 role=AgentRole.TRADER,
                 name="EmergencyDecisionAgent",
-                model_name=get_settings().llm_config_name,
+                model=get_settings().llm_config_name,
             )
         
         self.config = config
@@ -115,7 +115,7 @@ Provide your decision in a clear, structured format."""
         self._tool_context = tool_context
         
         # Get model
-        model = get_model_from_config(self.config.model_name)
+        model = get_model_from_config(self.config.model)
         
         # Create agent with emergency prompt
         agent_options = AgentOptions(

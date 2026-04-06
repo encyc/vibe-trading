@@ -40,7 +40,7 @@ class MacroAnalysisAgent:
             config = AgentConfig(
                 role=AgentRole.BULL_RESEARCHER,  # Use researcher role
                 name="MacroAnalysisAgent",
-                model_name=get_settings().llm_config_name,
+                model=get_settings().llm_config_name,
             )
         
         self.config = config
@@ -105,7 +105,7 @@ Your analysis should help guide trading decisions by providing context about the
         self._tool_context = tool_context
         
         # Get model
-        model = get_model_from_config(self.config.model_name)
+        model = get_model_from_config(self.config.model)
         
         # Create agent with macro prompt
         agent_options = AgentOptions(
@@ -131,17 +131,51 @@ Your analysis should help guide trading decisions by providing context about the
         if not self._agent:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
         
+        # Clear previous messages for fresh analysis
+        self._agent.clear_messages()
+        
         # Build analysis prompt
         prompt = self._build_analysis_prompt(market_data)
         
-        # Get agent response
-        response = await self._agent.run(prompt)
+        # Send prompt to agent
+        await self._agent.prompt(prompt)
         
-        # Parse response
-        analysis = self._parse_analysis(response)
+        # Wait for agent to complete
+        await self._agent.wait_for_idle()
         
-        logger.info(f"Macro analysis completed: {analysis['market_regime']} (confidence={analysis['confidence']:.2f})")
-        return analysis
+        # Get response from agent message history
+        messages = self._agent.state.messages
+        if messages:
+            # Get the last assistant message
+            last_message = messages[-1]
+            if hasattr(last_message, 'content'):
+                # Extract text from message content
+                response_text = ""
+                for content in last_message.content:
+                    if hasattr(content, 'text'):
+                        response_text += content.text
+                
+                # Parse response
+                analysis = self._parse_analysis(response_text)
+                
+                logger.info(f"Macro analysis completed: {analysis['market_regime']} (confidence={analysis['confidence']:.2f})")
+                return analysis
+        
+        # Return default analysis if no response
+        logger.warning("No response from agent, returning default analysis")
+        return {
+            "trend_direction": "SIDEWAYS",
+            "trend_strength": "MODERATE",
+            "market_regime": "NEUTRAL",
+            "overall_sentiment": "NEUTRAL",
+            "sentiment_score": 0.0,
+            "major_events": [],
+            "recommendation": {
+                "stance": "NEUTRAL",
+                "rationale": "Unable to get agent response",
+            },
+            "confidence": 0.0,
+        }
     
     def _build_analysis_prompt(self, market_data: Dict) -> str:
         """Build analysis prompt"""

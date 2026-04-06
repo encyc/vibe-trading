@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
 import json
 
-from sqlalchemy import select, update, delete, and_
+from sqlalchemy import select, update, delete, and_, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from vibe_trading.config.settings import get_settings
@@ -81,7 +81,7 @@ class MacroStorage:
     def _create_tables(self, conn) -> None:
         """Create macro_states table"""
         # Create table using SQL
-        conn.execute("""
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS macro_states (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol VARCHAR(20) NOT NULL,
@@ -98,17 +98,17 @@ class MacroStorage:
                 created_at INTEGER NOT NULL,
                 UNIQUE(symbol, timestamp)
             )
-        """)
+        """))
         
         # Create indexes
-        conn.execute("""
+        conn.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_macro_states_symbol_timestamp 
             ON macro_states(symbol, timestamp)
-        """)
-        conn.execute("""
+        """))
+        conn.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_macro_states_timestamp 
             ON macro_states(timestamp)
-        """)
+        """))
     
     async def close(self) -> None:
         """Close database connection"""
@@ -128,7 +128,7 @@ class MacroStorage:
         try:
             async with self._session_factory() as session:
                 # Insert or update
-                stmt = """
+                stmt = text("""
                     INSERT OR REPLACE INTO macro_states (
                         symbol, timestamp,
                         trend_direction, trend_strength, market_regime,
@@ -136,25 +136,32 @@ class MacroStorage:
                         major_events, agent_recommendation,
                         confidence, analysis_duration,
                         created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
+                    ) VALUES (
+                        :symbol, :timestamp,
+                        :trend_direction, :trend_strength, :market_regime,
+                        :overall_sentiment, :sentiment_score,
+                        :major_events, :agent_recommendation,
+                        :confidence, :analysis_duration,
+                        :created_at
+                    )
+                """)
                 
                 await session.execute(
                     stmt,
-                    (
-                        state.symbol,
-                        state.timestamp,
-                        state.trend_direction,
-                        state.trend_strength,
-                        state.market_regime,
-                        state.overall_sentiment,
-                        state.sentiment_score,
-                        json.dumps(state.major_events),
-                        json.dumps(state.agent_recommendation),
-                        state.confidence,
-                        state.analysis_duration,
-                        int(datetime.now().timestamp() * 1000),
-                    )
+                    {
+                        "symbol": state.symbol,
+                        "timestamp": state.timestamp,
+                        "trend_direction": state.trend_direction,
+                        "trend_strength": state.trend_strength,
+                        "market_regime": state.market_regime,
+                        "overall_sentiment": state.overall_sentiment,
+                        "sentiment_score": state.sentiment_score,
+                        "major_events": json.dumps(state.major_events),
+                        "agent_recommendation": json.dumps(state.agent_recommendation),
+                        "confidence": state.confidence,
+                        "analysis_duration": state.analysis_duration,
+                        "created_at": int(datetime.now().timestamp() * 1000),
+                    }
                 )
                 
                 await session.commit()
@@ -177,14 +184,14 @@ class MacroStorage:
         """
         try:
             async with self._session_factory() as session:
-                stmt = """
+                stmt = text("""
                     SELECT * FROM macro_states
-                    WHERE symbol = ?
+                    WHERE symbol = :symbol
                     ORDER BY timestamp DESC
                     LIMIT 1
-                """
+                """)
                 
-                result = await session.execute(stmt, (symbol,))
+                result = await session.execute(stmt, {"symbol": symbol})
                 row = result.fetchone()
                 
                 if row:
@@ -214,18 +221,22 @@ class MacroStorage:
         """
         try:
             async with self._session_factory() as session:
-                stmt = """
+                stmt = text("""
                     SELECT * FROM macro_states
-                    WHERE symbol = ?
-                    AND ABS(timestamp - ?) <= ?
-                    ORDER BY ABS(timestamp - ?) ASC
+                    WHERE symbol = :symbol
+                    AND ABS(timestamp - :timestamp) <= :tolerance_ms
+                    ORDER BY ABS(timestamp - :timestamp) ASC
                     LIMIT 1
-                """
+                """)
                 
                 tolerance_ms = tolerance_seconds * 1000
                 result = await session.execute(
                     stmt,
-                    (symbol, timestamp, tolerance_ms, timestamp)
+                    {
+                        "symbol": symbol,
+                        "timestamp": timestamp,
+                        "tolerance_ms": tolerance_ms,
+                    }
                 )
                 row = result.fetchone()
                 
@@ -258,26 +269,27 @@ class MacroStorage:
         """
         try:
             async with self._session_factory() as session:
-                where_clauses = ["symbol = ?"]
-                params = [symbol]
+                where_clauses = ["symbol = :symbol"]
+                params = {"symbol": symbol}
                 
                 if start_time is not None:
-                    where_clauses.append("timestamp >= ?")
-                    params.append(start_time)
+                    where_clauses.append("timestamp >= :start_time")
+                    params["start_time"] = start_time
                 
                 if end_time is not None:
-                    where_clauses.append("timestamp <= ?")
-                    params.append(end_time)
+                    where_clauses.append("timestamp <= :end_time")
+                    params["end_time"] = end_time
                 
-                stmt = f"""
+                params["limit"] = limit
+                
+                stmt = text(f"""
                     SELECT * FROM macro_states
                     WHERE {' AND '.join(where_clauses)}
                     ORDER BY timestamp DESC
-                    LIMIT ?
-                """
+                    LIMIT :limit
+                """)
                 
-                params.append(limit)
-                result = await session.execute(stmt, tuple(params))
+                result = await session.execute(stmt, params)
                 rows = result.fetchall()
                 
                 return [self._row_to_state(row) for row in rows]
@@ -354,12 +366,12 @@ class MacroStorage:
                     (datetime.now() - timedelta(days=days_to_keep)).timestamp() * 1000
                 )
                 
-                stmt = """
+                stmt = text("""
                     DELETE FROM macro_states
-                    WHERE timestamp < ?
-                """
+                    WHERE timestamp < :cutoff_time
+                """)
                 
-                result = await session.execute(stmt, (cutoff_time,))
+                result = await session.execute(stmt, {"cutoff_time": cutoff_time})
                 await session.commit()
                 
                 deleted_count = result.rowcount if hasattr(result, 'rowcount') else 0
@@ -383,28 +395,29 @@ class MacroStorage:
         try:
             async with self._session_factory() as session:
                 # Get count
-                count_stmt = """
-                    SELECT COUNT(*) as count FROM macro_states WHERE symbol = ?
-                """
-                count_result = await session.execute(count_stmt, (symbol,))
-                count = count_result.fetchone()[0] if count_result.fetchone() else 0
+                count_stmt = text("""
+                    SELECT COUNT(*) as count FROM macro_states WHERE symbol = :symbol
+                """)
+                count_result = await session.execute(count_stmt, {"symbol": symbol})
+                count_row = count_result.fetchone()
+                count = count_row[0] if count_row else 0
                 
                 # Get latest timestamp
-                latest_stmt = """
-                    SELECT MAX(timestamp) as latest FROM macro_states WHERE symbol = ?
-                """
-                latest_result = await session.execute(latest_stmt, (symbol,))
+                latest_stmt = text("""
+                    SELECT MAX(timestamp) as latest FROM macro_states WHERE symbol = :symbol
+                """)
+                latest_result = await session.execute(latest_stmt, {"symbol": symbol})
                 latest_row = latest_result.fetchone()
                 latest_timestamp = latest_row[0] if latest_row else None
                 
                 # Get trend distribution
-                trend_stmt = """
+                trend_stmt = text("""
                     SELECT trend_direction, COUNT(*) as count
                     FROM macro_states
-                    WHERE symbol = ?
+                    WHERE symbol = :symbol
                     GROUP BY trend_direction
-                """
-                trend_result = await session.execute(trend_stmt, (symbol,))
+                """)
+                trend_result = await session.execute(trend_stmt, {"symbol": symbol})
                 trend_distribution = {
                     row[0]: row[1] for row in trend_result.fetchall()
                 }

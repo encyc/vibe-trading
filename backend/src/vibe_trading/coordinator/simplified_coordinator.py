@@ -107,6 +107,9 @@ class SimplifiedTradingCoordinator:
             interval=self.interval,
         )
         
+        # Initialize macro storage
+        await self.macro_storage.init()
+        
         # Initialize technical analyst
         if self.agent_config.technical_analyst.enabled:
             self._technical_analyst = await create_technical_analyst(self._tool_context)
@@ -191,14 +194,14 @@ class SimplifiedTradingCoordinator:
             current_positions,
         )
         
-        logger.info(f"Simplified decision flow completed: {final_decision.decision}")
+        logger.info(f"Simplified decision flow completed: {final_decision.get('decision', 'HOLD')}")
         
         return TradingDecision(
             symbol=self.symbol,
             timestamp=int(datetime.now().timestamp() * 1000),
-            decision=final_decision.decision,
-            rationale=final_decision.rationale,
-            execution_instructions=final_decision.execution_instructions,
+            decision=final_decision.get("decision", "HOLD"),
+            rationale=final_decision.get("rationale", "No rationale provided"),
+            execution_instructions=None,
             agent_outputs=agent_outputs,
             macro_state=macro_state,
         )
@@ -234,11 +237,17 @@ class SimplifiedTradingCoordinator:
             return {}
         
         try:
-            report = await self._technical_analyst.analyze(
-                price=context.current_price,
-                klines=context.klines,
-                indicators=context.indicators,
-            )
+            # Build market data from context
+            market_data = {
+                "symbol": context.symbol,
+                "interval": context.interval,
+                "current_price": context.current_price,
+                "klines": context.klines,
+                "indicators": context.indicators,
+                "market_data": context.market_data,
+            }
+            
+            report = await self._technical_analyst.analyze(market_data)
             return {"technical": report}
         except Exception as e:
             logger.error(f"Error in technical analysis: {e}", exc_info=True)
@@ -278,28 +287,36 @@ class SimplifiedTradingCoordinator:
         Returns:
             Debate result
         """
-        if not (self._bull_researcher and self._bear_researcher and self._research_manager):
+        if not (self._bull_researcher and self._bear_researcher):
             return {}
         
         try:
-            # Build research context
-            research_context = {
-                "symbol": context.symbol,
-                "price": context.current_price,
-                "technical_analysis": tech_reports,
-                "macro_state": macro_state.to_dict() if macro_state else None,
-            }
+            # Build research context string
+            research_context = f"""Symbol: {context.symbol}
+Current Price: ${context.current_price:.2f}
+
+Technical Analysis:
+{tech_reports.get('technical', 'No technical analysis available')}
+
+Macro State:
+{macro_state.to_dict() if macro_state else 'No macro state available'}
+"""
             
             # Run debate
-            debate_result = await run_debate_round(
-                bull_researcher=self._bull_researcher,
-                bear_researcher=self._bear_researcher,
-                research_manager=self._research_manager,
-                research_context=research_context,
-                round_number=1,
+            bull_response, bear_response = await run_debate_round(
+                bull=self._bull_researcher,
+                bear=self._bear_researcher,
+                context=research_context,
+                bull_history="",
+                bear_history="",
             )
             
-            return {"debate": debate_result}
+            return {
+                "debate": {
+                    "bull_response": bull_response,
+                    "bear_response": bear_response,
+                }
+            }
         except Exception as e:
             logger.error(f"Error in research debate: {e}", exc_info=True)
             return {"debate": f"Error: {str(e)}"}
@@ -349,16 +366,62 @@ class SimplifiedTradingCoordinator:
                 macro_state,
             )
             
-            # Make decision
-            decision = await self._portfolio_manager.make_final_decision(
-                analyst_reports=tech_reports,
-                research_recommendation=debate_result,
-                risk_assessment=risk_assessment,
-                current_positions=current_positions,
-                account_balance=account_balance,
+            # Build investment plan text from debate result
+            investment_plan = f"Research Debate Result:\n"
+            if "debate" in debate_result and isinstance(debate_result["debate"], dict):
+                investment_plan += f"Bull Response: {debate_result['debate'].get('bull_response', 'N/A')}\n"
+                investment_plan += f"Bear Response: {debate_result['debate'].get('bear_response', 'N/A')}\n"
+            
+            # Create a minimal trading plan (will be replaced if trade is approved)
+            from vibe_trading.agents.decision.trading_tools import TradingPlan, PositionSide, ExecutionStyle
+            trading_plan = TradingPlan(
+                symbol=self.symbol,
+                position_side=PositionSide.LONG,
+                direction="LONG",
+                execution_style=ExecutionStyle.IMMEDIATE,
+                entry_orders=[],
+                total_position_usdt=0.0,
+                total_position_coin=0.0,
+                leverage=1.0,
+                stop_loss_orders=[],
+                take_profit_orders=[],
+                trailing_stop_config={},
+                max_loss_usdt=0.0,
+                max_loss_pct=0.0,
+                risk_reward_ratio=0.0,
+                execution_notes=[],
             )
             
-            return decision
+            # Build risk debate dict
+            risk_debate = {
+                "risk_assessment": risk_assessment,
+                "risk_level": risk_assessment.get("risk_level", "MEDIUM"),
+            }
+            
+            # Make decision
+            result = await self._portfolio_manager.make_final_decision(
+                analyst_reports=tech_reports,
+                investment_plan=investment_plan,
+                trading_plan=trading_plan,
+                risk_debate=risk_debate,
+                current_positions=current_positions,
+                account_balance=account_balance,
+                current_price=0.0,  # Will be set in context
+            )
+            
+            # Extract decision from result
+            if "scorecard" in result:
+                scorecard = result["scorecard"]
+                return {
+                    "decision": scorecard.recommended_action,
+                    "rationale": result.get("decision_text", scorecard.rationale),
+                    "confidence": scorecard.confidence,
+                }
+            else:
+                return {
+                    "decision": "HOLD",
+                    "rationale": "No valid decision generated",
+                }
         except Exception as e:
             logger.error(f"Error making final decision: {e}", exc_info=True)
             return {
