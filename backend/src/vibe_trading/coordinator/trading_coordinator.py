@@ -30,6 +30,7 @@ from vibe_trading.agents.decision.decision_agents import (
     create_trader,
     create_portfolio_manager,
 )
+from vibe_trading.agents.decision.trading_tools import TradingPlan
 from vibe_trading.memory.memory import PersistentMemory
 from vibe_trading.data_sources.kline_storage import KlineStorage
 

@@ -633,6 +633,75 @@ LOG_FILE=./vibe_trading.log
 
 ### 历史数据回测
 
+**🔬 新回测系统** (2026-04-07):
+
+基于历史数据的完整回测系统，支持策略验证和参数优化。
+
+```bash
+# 查看帮助
+PYTHONPATH=backend/src uv run --no-sync python -m vibe_trading.cli backtest --help
+
+# 基础回测
+PYTHONPATH=backend/src uv run --no-sync python -m vibe_trading.cli backtest \
+  BTCUSDT --start "2024-01-01" --end "2024-01-31"
+
+# 使用缓存模式（更快）
+PYTHONPATH=backend/src uv run --no-sync python -m vibe_trading.cli backtest \
+  BTCUSDT --start "2024-01-01" --end "2024-01-31" --llm-mode cached
+
+# 生成 HTML 报告
+PYTHONPATH=backend/src uv run --no-sync python -m vibe_trading.cli backtest \
+  BTCUSDT --start "2024-01-01" --end "2024-01-31" --report-format html
+
+# 交互式演示
+uv run python demo_backtest.py
+
+# 组件测试
+uv run python test_backtest_simple.py
+```
+
+**Python API 使用**:
+
+```python
+import asyncio
+from datetime import datetime, timedelta
+from vibe_trading.backtest.engine import BacktestEngine
+from vibe_trading.backtest.models import BacktestConfig, LLMMode
+
+async def run_backtest():
+    config = BacktestConfig(
+        symbol="BTCUSDT",
+        interval="1h",
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        initial_balance=10000.0,
+        llm_mode=LLMMode.SIMULATED,
+    )
+
+    engine = BacktestEngine(config)
+    result = await engine.run_backtest()
+
+    print(f"总收益率: {result.metrics.total_return:.2%}")
+    print(f"夏普比率: {result.metrics.sharpe_ratio:.2f}")
+    print(f"胜率: {result.metrics.win_rate:.2%}")
+
+asyncio.run(run_backtest())
+```
+
+**回测系统特性**:
+
+- 📊 多种数据源：本地存储、Binance API、混合模式
+- 🚀 三种 LLM 模式：SIMULATED（模拟）、CACHED（缓存）、REAL（真实）
+- 📈 完整指标：收益率、夏普比率、最大回撤、胜率、盈亏比
+- 📄 多格式报告：TEXT、HTML（交互式图表）、JSON
+- 💾 自动缓存：首次下载后自动缓存到本地数据库
+
+详细文档: [BACKTEST_README.md](./BACKTEST_README.md) | [BACKTEST_GUIDE.md](./BACKTEST_GUIDE.md)
+
+---
+
+**传统历史数据测试**（旧版，带 Web 监控界面）:
+
 ```bash
 # 运行历史数据回测（带 Web 监控界面）
 uv run test_historical.py

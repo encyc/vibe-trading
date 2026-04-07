@@ -3,14 +3,12 @@ K线数据存储模块
 
 提供 K线数据的存储和检索功能。
 """
-import asyncio
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from typing import List, Optional
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, BigInteger
+from sqlalchemy import Column, Integer, String, Float, Boolean, BigInteger
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import select
 
 from vibe_trading.config.settings import get_settings
@@ -79,8 +77,14 @@ class KlineStorage:
         if self._engine:
             await self._engine.dispose()
 
+    async def _ensure_initialized(self) -> None:
+        """确保数据库已初始化"""
+        if self._session_factory is None:
+            await self.init()
+
     async def store_kline(self, kline: Kline) -> None:
         """存储单条 K线数据"""
+        await self._ensure_initialized()
         async with self._session_factory() as session:
             # 检查是否已存在
             stmt = select(KlineModel).where(
@@ -128,6 +132,7 @@ class KlineStorage:
 
     async def store_klines(self, klines: List[Kline]) -> None:
         """批量存储 K线数据"""
+        await self._ensure_initialized()
         async with self._session_factory() as session:
             for kline in klines:
                 stmt = select(KlineModel).where(
@@ -173,6 +178,7 @@ class KlineStorage:
 
     async def query_klines(self, query: KlineQuery) -> List[Kline]:
         """查询 K线数据"""
+        await self._ensure_initialized()
         async with self._session_factory() as session:
             stmt = select(KlineModel).where(
                 KlineModel.symbol == query.symbol,
@@ -223,6 +229,7 @@ class KlineStorage:
 
     async def count_klines(self, symbol: str, interval: str) -> int:
         """统计 K线数量"""
+        await self._ensure_initialized()
         async with self._session_factory() as session:
             stmt = select(KlineModel).where(
                 KlineModel.symbol == symbol,
