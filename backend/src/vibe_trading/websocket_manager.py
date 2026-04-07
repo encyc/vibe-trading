@@ -275,18 +275,32 @@ class WebSocketManager:
                 f"收:{kline.close:.2f} {change_icon}{price_change_pct:+.2f}% 量:{kline.volume:.2f}",
                 tag="KLine"
             )
-            
+
             stream_config = self._streams.get(stream)
             if stream_config and stream_config.callback:
                 try:
                     logger.info(f"触发回调处理: {kline.symbol} @ ${kline.close:.2f}")
-                    # 如果是协程，await它
-                    result = stream_config.callback(kline)
-                    if asyncio.iscoroutine(result):
-                        await result
-                    logger.info(f"回调处理完成")
+                    # 将回调处理放入后台任务，避免阻塞消息接收
+                    asyncio.create_task(self._execute_callback(stream_config.callback, kline))
                 except Exception as e:
-                    logger.error(f"回调执行失败: {e}", exc_info=True)
+                    logger.error(f"回调启动失败: {e}", exc_info=True)
+
+    async def _execute_callback(self, callback: Callable, kline: Kline) -> None:
+        """
+        执行回调函数（在后台任务中运行）
+
+        Args:
+            callback: 回调函数
+            kline: K线数据
+        """
+        try:
+            # 如果是协程，await它
+            result = callback(kline)
+            if asyncio.iscoroutine(result):
+                await result
+            logger.info(f"回调处理完成: {kline.symbol}")
+        except Exception as e:
+            logger.error(f"回调执行失败: {e}", exc_info=True)
 
     async def stop(self) -> None:
         """停止WebSocket连接"""

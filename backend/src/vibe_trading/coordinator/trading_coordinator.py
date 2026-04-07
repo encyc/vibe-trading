@@ -7,13 +7,11 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 
-from pi_agent_core import Agent
-from pi_ai.config import get_model_from_config
-from pi_logger import get_logger, step, done, info, success, warning, separator
+from pi_logger import get_logger, info, success, separator
 
-from vibe_trading.config.agent_config import AgentConfig, AgentRole, AgentTeamConfig
+from vibe_trading.config.agent_config import AgentRole, AgentTeamConfig
 from vibe_trading.config.settings import get_settings
 from vibe_trading.agents.agent_factory import ToolContext
 from vibe_trading.agents.analysts.technical_analyst import create_technical_analyst
@@ -25,7 +23,6 @@ from vibe_trading.agents.researchers.researcher_agents import (
     run_debate_round,
 )
 from vibe_trading.agents.risk_mgmt.risk_agents import (
-    RiskAnalystAgent,
     run_risk_debate,
     create_risk_analyst,
 )
@@ -34,7 +31,6 @@ from vibe_trading.agents.decision.decision_agents import (
     create_portfolio_manager,
 )
 from vibe_trading.memory.memory import PersistentMemory
-from vibe_trading.tools import market_data_tools, technical_tools, fundamental_tools, sentiment_tools
 from vibe_trading.data_sources.kline_storage import KlineStorage
 
 # 改进工具导入
@@ -46,16 +42,27 @@ from vibe_trading.coordinator.state_machine import (
 from vibe_trading.agents.messaging import (
     get_message_broker,
     MessageType,
-    create_analysis_report,
-    create_debate_speech,
-    create_risk_assessment,
-    create_final_decision,
 )
 from vibe_trading.coordinator.parallel_executor import get_parallel_executor
 from vibe_trading.data_sources.rate_limiter import get_multi_endpoint_limiter
 from vibe_trading.data_sources.cache import get_global_cache
 from vibe_trading.agents.token_optimizer import get_token_optimizer
 from vibe_trading.config.logging_config import PerformanceLogger
+
+from vibe_trading.coordinator.state_propagator import (
+    StatePropagator,
+    EnhancedDecisionContext,
+)
+from vibe_trading.coordinator.signal_processor import (
+    SignalProcessor,
+    TradingSignal,
+)
+from vibe_trading.coordinator.quality_tracker import (
+    get_quality_tracker,
+)
+from vibe_trading.memory.reflection import (
+    TradeReflector,
+)
 
 logger = logging.getLogger(__name__)
 log = get_logger("TradingCoordinator")
@@ -119,6 +126,9 @@ class TradingCoordinator:
         self._trader: Optional[Any] = None
         self._portfolio_manager: Optional[Any] = None
 
+        # Agent调用锁（防止并发调用冲突）
+        self._agent_locks: Dict[str, asyncio.Lock] = {}
+
         # 决策历史
         self._decision_history: List[TradingDecision] = []
 
@@ -152,6 +162,19 @@ class TradingCoordinator:
 
         # 性能日志
         self._perf_log = PerformanceLogger("TradingCoordinator")
+
+        # 状态传播器
+        self._state_propagator = StatePropagator()
+        self._enhanced_context: Optional[EnhancedDecisionContext] = None
+
+        # 信号处理器
+        self._signal_processor = SignalProcessor()
+
+        # 质量跟踪器
+        self._quality_tracker = get_quality_tracker()
+
+        # 反思器
+        self._reflector: Optional[TradeReflector] = None
 
         logger.info(f"TradingCoordinator initialized for {symbol} {interval}")
 
@@ -229,8 +252,6 @@ class TradingCoordinator:
 
     async def initialize(self) -> None:
         """初始化所有 Agent"""
-        settings = get_settings()
-
         # 初始化分析师
         if self.agent_config.technical_analyst.enabled:
             self._analysts["technical"] = await create_technical_analyst(self._tool_context)
@@ -323,7 +344,7 @@ class TradingCoordinator:
 
         # 转换到ANALYZING状态
         self._current_state_machine.transition_to(DecisionState.ANALYZING, "开始分析师阶段")
-        logger.info(f"[状态机] PENDING -> ANALYZING")
+        logger.info("[状态机] PENDING -> ANALYZING")
 
         # 准备上下文
         context = await self._prepare_context(current_price)
@@ -384,7 +405,7 @@ class TradingCoordinator:
 
         # ========== 改进工具: 状态机转换 ==========
         self._current_state_machine.transition_to(DecisionState.DEBATING, "开始研究员辩论")
-        logger.info(f"[状态机] ANALYZING -> DEBATING")
+        logger.info("[状态机] ANALYZING -> DEBATING")
 
         # 更新决策树 - 阶段开始
         await self._update_decision_tree("researchers", "running")
@@ -422,7 +443,7 @@ class TradingCoordinator:
 
         # ========== 改进工具: 状态机转换 ==========
         self._current_state_machine.transition_to(DecisionState.ASSESSING_RISK, "开始风控评估")
-        logger.info(f"[状态机] DEBATING -> ASSESSING_RISK")
+        logger.info("[状态机] DEBATING -> ASSESSING_RISK")
 
         # 更新决策树 - 阶段开始
         await self._update_decision_tree("risk", "running")
@@ -469,7 +490,7 @@ class TradingCoordinator:
 
         # ========== 改进工具: 状态机转换 ==========
         self._current_state_machine.transition_to(DecisionState.PLANNING, "开始执行规划")
-        logger.info(f"[状态机] ASSESSING_RISK -> PLANNING")
+        logger.info("[状态机] ASSESSING_RISK -> PLANNING")
 
         # 更新决策树 - 阶段开始
         await self._update_decision_tree("trader", "running")
@@ -483,11 +504,15 @@ class TradingCoordinator:
         logger.info(f"[性能] Phase 4 (交易员) 耗时: {phase_elapsed:.2f}s")
         agent_outputs["trading_plan"] = trading_plan
 
+        # 转换为字符串用于显示
+        trading_plan_str = str(trading_plan)
+        trading_plan_display = trading_plan_str[:500] + "..." if len(trading_plan_str) > 500 else trading_plan_str
+
         # 更新决策树 - 阶段完成
         await self._update_decision_tree(
             "trader",
             "completed",
-            content=trading_plan[:500] if len(trading_plan) > 500 else trading_plan
+            content=trading_plan_display
         )
 
         # 推送交易方案到 Web
@@ -500,7 +525,7 @@ class TradingCoordinator:
         # 打印交易方案
         print("\n[TRADING PLAN]")
         separator("=", 60)
-        print(trading_plan[:500] + "..." if len(trading_plan) > 500 else trading_plan)
+        print(trading_plan_display)
         separator()
         log.done("交易方案制定完成")
 
@@ -509,7 +534,7 @@ class TradingCoordinator:
 
         # ========== 改进工具: 状态机转换 ==========
         self._current_state_machine.transition_to(DecisionState.COMPLETED, "决策完成")
-        logger.info(f"[状态机] PLANNING -> COMPLETED")
+        logger.info("[状态机] PLANNING -> COMPLETED")
 
         # 更新决策树 - 阶段开始
         await self._update_decision_tree("pm", "running")
@@ -563,6 +588,46 @@ class TradingCoordinator:
         )
 
         self._decision_history.append(decision)
+
+        # ========== P0 & P1 改进: 信号处理和质量跟踪 ==========
+        # 1. 提取结构化信号
+        processed_signal = self._signal_processor.process_signal(
+            decision_text=final_decision.get("rationale", ""),
+            agent_name="Portfolio Manager",
+        )
+
+        logger.info(f"[信号处理] 提取信号: {processed_signal.signal.value} "
+                   f"(置信度: {processed_signal.confidence:.2f}, 强度: {processed_signal.strength.value})")
+
+        # 2. 计算Agent贡献度
+        agent_contributions = self._calculate_agent_contributions(
+            analyst_reports, investment_plan, risk_assessment, final_decision
+        )
+
+        # 3. 确定市场状态
+        market_condition = self._determine_market_condition(context)
+
+        # 4. 记录决策到质量跟踪器
+        await self._quality_tracker.record_decision(
+            decision_id=decision_id,
+            symbol=self.symbol,
+            signal=processed_signal,
+            agent_contributions=agent_contributions,
+            market_condition=market_condition,
+        )
+
+        logger.info(f"[质量跟踪] 决策已记录: {decision_id}")
+
+        # 5. 保存决策ID和信号供后续反思使用
+        self._last_decision_id = decision_id
+        self._last_processed_signal = processed_signal
+        self._last_analyst_reports = analyst_reports
+        self._last_decision_context = {
+            "market_condition": market_condition,
+            "final_decision": final_decision,
+            "investment_plan": investment_plan,
+            "risk_assessment": risk_assessment,
+        }
 
         elapsed = (datetime.now() - start_time).total_seconds()
         success(f"分析完成: {decision.decision} (耗时 {elapsed:.2f}s)", tag="Coordinator")
@@ -684,17 +749,23 @@ class TradingCoordinator:
         # 创建分析任务
         async def run_analyst_task(role: str, analyst):
             try:
-                if role == "technical" and hasattr(analyst, 'analyze_with_indicators'):
-                    market_data = {
-                        "symbol": context.symbol,
-                        "interval": context.interval,
-                        "current_price": context.current_price,
-                        "indicators": context.indicators,
-                    }
-                    result = await analyst.analyze_with_indicators(market_data)
-                else:
-                    data = await self._get_analyst_data(role, context, stats)
-                    result = await analyst.analyze(data)
+                # 获取或创建Agent锁
+                if role not in self._agent_locks:
+                    self._agent_locks[role] = asyncio.Lock()
+
+                # 使用锁保护Agent调用（防止并发冲突）
+                async with self._agent_locks[role]:
+                    if role == "technical" and hasattr(analyst, 'analyze_with_indicators'):
+                        market_data = {
+                            "symbol": context.symbol,
+                            "interval": context.interval,
+                            "current_price": context.current_price,
+                            "indicators": context.indicators,
+                        }
+                        result = await analyst.analyze_with_indicators(market_data)
+                    else:
+                        data = await self._get_analyst_data(role, context, stats)
+                        result = await analyst.analyze(data)
 
                 # ========== 改进工具: 消息记录 ==========
                 self._message_broker.send(
@@ -918,7 +989,7 @@ class TradingCoordinator:
 
     async def _run_trader(
         self, investment_plan: str, risk_assessment: Dict, context: TradingContext, account_balance: float
-    ) -> str:
+    ) -> TradingPlan:
         """运行交易员"""
         if not self._trader:
             return "No trading plan (trader not enabled)"
@@ -1022,7 +1093,204 @@ class TradingCoordinator:
         except Exception as e:
             logger.error(f"Error in on_new_kline: {e}", exc_info=True)
 
+    # ========== P0 & P1 改进功能集成 ==========
+    async def on_trade_completed(
+        self,
+        entry_price: float,
+        exit_price: float,
+        position_size: float,
+        hold_duration_hours: float = 1.0,
+    ) -> None:
+        """
+        交易完成后调用
+
+        执行反思和质量评估
+        """
+        if not hasattr(self, '_last_decision_id') or not self._last_decision_id:
+            logger.warning("没有可反思的决策", tag="Reflection")
+            return
+
+        logger.info(
+            f"交易完成: 入场 ${entry_price:.2f} → 出场 ${exit_price:.2f} "
+           f"(PnL: {(exit_price - entry_price) * position_size:.2f})",
+            tag="Reflection"
+        )
+
+        # 初始化反思器
+        if not self._reflector and self.memory:
+            self._reflector = TradeReflector(memory=self.memory)
+
+        # ========== 执行反思 ==========
+        if self._reflector:
+            try:
+                from vibe_trading.memory.reflection import TradeResult
+
+                trade_result = TradeResult(
+                    symbol=self.symbol,
+                    decision=self._last_processed_signal.signal.value,
+                    entry_price=entry_price,
+                    exit_price=exit_price,
+                    position_size=position_size,
+                    pnl=(exit_price - entry_price) * position_size
+                        if self._last_processed_signal.signal == TradingSignal.BUY
+                        else (entry_price - exit_price) * position_size,
+                    pnl_percentage=((exit_price - entry_price) / entry_price) * 100
+                        if self._last_processed_signal.signal == TradingSignal.BUY
+                        else ((entry_price - exit_price) / entry_price) * 100,
+                    hold_duration_hours=hold_duration_hours,
+                    market_condition=self._determine_market_condition(
+                        await self._prepare_context(exit_price)
+                    ),
+                )
+
+                # 获取所有Agent报告（从agent_outputs）
+                all_reports = {}
+                if hasattr(self, '_last_agent_outputs'):
+                    all_reports = self._last_agent_outputs
+
+                # 执行反思
+                reflections = await self._reflector.reflect_on_trade(
+                    trade_result=trade_result,
+                    agent_reports=all_reports,
+                    decision_context={
+                        "decision_id": self._last_decision_id,
+                        "signal": self._last_processed_signal.signal.value,
+                        "confidence": self._last_processed_signal.confidence,
+                    },
+                )
+
+                logger.info(
+                    f"反思完成: 生成了 {len(reflections)} 条反思",
+                    tag="Reflection"
+                )
+
+            except Exception as e:
+                logger.error(f"反思失败: {e}", tag="Reflection")
+
+        # ========== 记录交易结果到质量评估 ==========
+        try:
+            await self._quality_tracker.record_outcome(
+                decision_id=self._last_decision_id,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                position_size=position_size,
+                hold_duration_hours=hold_duration_hours,
+            )
+
+            logger.info(
+                "质量评估: 交易结果已记录",
+                tag="QualityTracker"
+            )
+
+        except Exception as e:
+            logger.error(f"质量评估失败: {e}", tag="QualityTracker")
+
+    def _determine_market_condition(self, context: TradingContext) -> str:
+        """判断市场状态"""
+        # 简化版判断逻辑
+        if hasattr(context, 'indicators'):
+            indicators = context.indicators
+            # 检查趋势
+            if indicators.get('trend') == 'uptrend':
+                return "trending"
+            elif indicators.get('volatility', 0) > 0.02:
+                return "volatile"
+        return "ranging"
+
+    def _calculate_agent_contributions(
+        self,
+        analyst_reports: Dict[str, str],
+        investment_plan: str,
+        trading_plan: str,
+        risk_assessment: Dict[str, str],
+    ) -> Dict[str, float]:
+        """
+        计算各Agent的贡献度
+
+        基于报告长度、关键词匹配等因素计算
+        """
+        contributions = {}
+
+        # 分析师贡献（基于报告长度和质量）
+        total_length = sum(len(r) for r in analyst_reports.values())
+        if total_length > 0:
+            for name, report in analyst_reports.items():
+                contributions[name] = len(report) / total_length * 0.4
+
+        # 研究员贡献（基于投资决策采纳度）
+        investment_keywords = ["buy", "sell", "long", "short", "做多", "做空"]
+        investment_lower = investment_plan.lower()
+        for keyword in investment_keywords:
+            if keyword in investment_lower:
+                contributions["Research Manager"] = contributions.get("Research Manager", 0) + 0.3
+                break
+
+        # 交易员贡献
+        trader_keywords = ["execution", "entry", "exit", "order"]
+        trader_lower = trading_plan.lower()
+        for keyword in trader_keywords:
+            if keyword in trader_lower:
+                contributions["Trader"] = contributions.get("Trader", 0) + 0.3
+                break
+
+        # 归一化
+        total = sum(contributions.values())
+        if total > 0:
+            contributions = {k: v/total for k, v in contributions.items()}
+
+        return contributions
+
+    async def get_quality_report(self) -> str:
+        """获取质量评估报告"""
+        try:
+            await self._quality_tracker.get_quality_metrics(force_refresh=True)
+            return self._quality_tracker.generate_report()
+        except Exception as e:
+            return f"无法生成质量报告: {e}"
+
+    async def get_agent_rankings(self) -> List[Tuple[str, float]]:
+        """获取Agent排名"""
+        try:
+            return self._quality_tracker.get_agent_ranking()
+        except Exception as e:
+            logger.error(f"获取Agent排名失败: {e}", tag="QualityTracker")
+            return []
+
+    async def get_top_performers(self, top_n: int = 3) -> List[str]:
+        """获取表现最好的Agent"""
+        try:
+            return self._quality_tracker.get_top_performers(top_n=top_n)
+        except Exception as e:
+            logger.error(f"获取最佳Agent失败: {e}", tag="QualityTracker")
+            return []
+
+    async def get_underperformers(self, threshold: float = 0.4) -> List[str]:
+        """获取表现不佳的Agent"""
+        try:
+            return self._quality_tracker.get_underperformers(threshold=threshold)
+        except Exception as e:
+            logger.error(f"获取不佳Agent失败: {e}", tag="QualityTracker")
+            return []
+
     async def close(self) -> None:
         """关闭所有资源"""
-        # 这里可以添加清理逻辑
-        pass
+        # 关闭所有Agent
+        for agent in list(self._analysts.values()):
+            if hasattr(agent, 'close'):
+                await agent.close()
+
+        for agent in list(self._researchers.values()):
+            if hasattr(agent, 'close'):
+                await agent.close()
+
+        for agent in list(self._risk_analysts.values()):
+            if hasattr(agent, 'close'):
+                await agent.close()
+
+        if self._trader and hasattr(self._trader, 'close'):
+            await self._trader.close()
+
+        if self._portfolio_manager and hasattr(self._portfolio_manager, 'close'):
+            await self._portfolio_manager.close()
+
+        logger.info("TradingCoordinator 已关闭")

@@ -33,6 +33,33 @@
 
 详见 [Agent Tools集成文档](./docs/AGENT_TOOLS_INTEGRATION.md) | [改进实施总结](./IMPROVEMENTS_SUMMARY.md)
 
+**🔬 与 TradeAgents 对比**:
+
+Vibe Trading 项目从 TradeAgents 汲取灵感，并在以下方面进行了优化和创新：
+
+| 特性 | Vibe Trading | TradeAgents |
+| :--- | :--- | :--- |
+| **Agent 协作** | 4阶段12 Agent 层级协作 | 多 Agent 协作 |
+| **决策机制** | 研究员多轮辩论 + 投资组合经理裁决 | Agent 投票/共识 |
+| **记忆系统** | BM25 语义搜索 + 反思机制 | 记忆存储 |
+| **数据源** | Binance 深度集成 + 多数据源回退 | 单数据源 |
+| **LLM 路由** | 双模型架构 (深度/快速思考) | 单一模型 |
+| **信号处理** | 结构化信号提取 (BUY/SELL/HOLD) | 文本决策 |
+| **质量追踪** | 决策质量评估 + Agent 排名 | 基础日志 |
+| **状态管理** | 状态机 + 消息代理 + 决策树 | 基础状态 |
+| **并发控制** | LLM 并发限制 + 并行执行 | 串行执行 |
+
+**P0 & P1 核心改进 (2026-04-07)**:
+
+1. **反思机制** (`memory/reflection.py`): 从交易结果中学习，自动更新 Agent 记忆
+2. **信号处理器** (`coordinator/signal_processor.py`): 从 Agent 文本提取结构化交易信号
+3. **状态传播增强** (`coordinator/state_propagator.py`): 管理 Agent 间状态传播
+4. **双模型配置** (`pi_ai/llm.yaml`): 深度/快速思考模型明确分离
+5. **数据源回退** (`data_sources/vendor_router.py`): 多数据源自动切换
+6. **决策质量评估** (`coordinator/quality_tracker.py`): 跟踪和评估决策质量
+
+详见 [P0 & P1 改进文档](./backend/docs/IMPROVEMENTS_P0_P1.md)
+
 **核心功能**:
 
 **核心功能**:

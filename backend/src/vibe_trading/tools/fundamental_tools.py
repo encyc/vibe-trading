@@ -235,8 +235,8 @@ async def get_top_trader_long_short_ratio(symbol: str, period: str = "1h") -> di
                 "symbol": symbol,
                 "period": period,
                 "long_short_ratio": float(latest["longShortRatio"]),
-                "long_position": float(latest["longPosition"]),
-                "short_position": float(latest["shortPosition"]),
+                "long_account": float(latest["longAccount"]),
+                "short_account": float(latest["shortAccount"]),
                 "timestamp": latest["timestamp"],
             }
     except Exception as e:
