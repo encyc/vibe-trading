@@ -3,18 +3,18 @@
 
 负责技术分析，识别趋势和信号。
 """
-import logging
 from typing import Dict, Optional
 
 from pi_agent_core import Agent, AgentOptions
 from pi_ai.config import get_model_from_config
+from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
 from vibe_trading.config.prompts import TECHNICAL_ANALYST_PROMPT
 from vibe_trading.config.settings import get_settings
 from vibe_trading.agents.agent_factory import ToolContext, format_market_data_for_agent, setup_streaming
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class TechnicalAnalystAgent:
@@ -79,8 +79,14 @@ Provide your technical analysis including:
             if last_assistant:
                 content = last_assistant[-1].content
                 if isinstance(content, list):
-                    return "".join(getattr(c, "text", str(c)) for c in content)
-                return str(content)
+                    response = "".join(getattr(c, "text", str(c)) for c in content)
+                else:
+                    response = str(content)
+                
+                # 记录技术分析结果到日志
+                logger.info(f"Technical Analysis: {response}", tag="Technical")
+                
+                return response
 
         return "Analysis failed - no response from agent"
 

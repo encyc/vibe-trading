@@ -45,6 +45,7 @@ def start(
     mode: str = typer.Option("paper", help="交易模式: paper (纸面) 或 live (实盘)"),
     execute: bool = typer.Option(False, help="--execute: 实盘模式下真正执行订单"),
     log_level: str = typer.Option("INFO", help="日志级别: DEBUG, INFO, WARNING, ERROR"),
+    save_logs: bool = typer.Option(True, help="--save-logs/--no-save-logs: 是否保存日志到文件 (默认保存到 logs/ 目录)"),
 ):
     """
     启动三线程交易系统
@@ -119,6 +120,7 @@ def start(
         interval=interval,
         mode=trading_mode,
         execute_trades=execute,
+        save_logs=save_logs,
     ))
 
 
@@ -127,6 +129,7 @@ async def run_multi_thread_system(
     interval: str,
     mode: TradingMode,
     execute_trades: bool,
+    save_logs: bool = True,
 ) -> None:
     """
     运行三线程交易系统
@@ -139,6 +142,26 @@ async def run_multi_thread_system(
     """
     info(f"启动三线程交易系统: {symbol} ({interval})", tag="START")
     separator("=", 60)
+
+    # 配置文件日志
+    log_file_path = None
+    if save_logs:
+        from pathlib import Path
+        from datetime import datetime
+        
+        # 创建logs目录
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+        
+        # 生成日志文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file_path = logs_dir / f"trading_{symbol}_{timestamp}.log"
+        
+        configure(log_level="INFO", json_output=False, log_file=str(log_file_path))
+        info(f"日志将保存到: {log_file_path}", tag="LOG")
+    else:
+        configure(log_level="INFO", json_output=False)
+        info("文件日志已禁用", tag="LOG")
 
     try:
         # 创建多线程系统

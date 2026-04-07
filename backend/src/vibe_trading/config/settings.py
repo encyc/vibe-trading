@@ -67,6 +67,7 @@ class Settings:
     # 日志配置
     log_level: LogLevel = LogLevel.INFO
     log_file: Optional[str] = None
+    enable_file_logging: bool = True  # 是否启用文件日志记录
 
     # 外部 API 配置
     cryptocmp_api_key: Optional[str] = field(default_factory=lambda: os.getenv("CRYPTOCOMPARE_API_KEY"))
@@ -94,6 +95,7 @@ class Settings:
             llm_config_name=os.getenv("LLM_MODEL", "glm_4_7"),
             log_level=LogLevel(os.getenv("LOG_LEVEL", "INFO")),
             log_file=os.getenv("LOG_FILE"),
+            enable_file_logging=os.getenv("ENABLE_FILE_LOGGING", "true").lower() == "true",
             database_url=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./vibe_trading.db"),
             cryptocmp_api_key=os.getenv("CRYPTOCOMPARE_API_KEY"),
             lunarcrush_api_key=os.getenv("LUNARCRUSH_API_KEY"),

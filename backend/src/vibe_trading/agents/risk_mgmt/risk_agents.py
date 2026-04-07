@@ -3,11 +3,11 @@
 
 包括激进、中立和保守风控分析师。
 """
-import logging
 from typing import Dict, List, Optional
 
 from pi_agent_core import Agent, AgentOptions
 from pi_ai.config import get_model_from_config
+from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
 from vibe_trading.config.prompts import (
@@ -18,7 +18,7 @@ from vibe_trading.config.prompts import (
 from vibe_trading.config.settings import get_settings
 from vibe_trading.agents.agent_factory import ToolContext, setup_streaming
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Prompt 映射
 RISK_PROMPTS = {
@@ -107,8 +107,14 @@ As a {self.config.name}, please provide:
             if last_assistant:
                 content = last_assistant[-1].content
                 if isinstance(content, list):
-                    return "".join(getattr(c, "text", str(c)) for c in content)
-                return str(content)
+                    response = "".join(getattr(c, "text", str(c)) for c in content)
+                else:
+                    response = str(content)
+                
+                # 记录风控分析结果到日志
+                logger.info(f"{self.config.name} Risk Assessment: {response}", tag="Risk")
+                
+                return response
 
         return "Risk assessment failed - no response from agent"
 

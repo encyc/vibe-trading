@@ -3,11 +3,11 @@
 
 包括交易员和投资组合经理。
 """
-import logging
 from typing import Dict, List, Optional
 
 from pi_agent_core import Agent, AgentOptions
 from pi_ai.config import get_model_from_config
+from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
 from vibe_trading.config.prompts import TRADER_PROMPT, PORTFOLIO_MANAGER_PROMPT
@@ -25,7 +25,7 @@ from vibe_trading.agents.decision.trading_tools import (
     ExecutionStyle,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class TraderAgent:
@@ -210,6 +210,12 @@ class TraderAgent:
                 else:
                     llm_response = str(content)
                 trading_plan.execution_notes.append(f"\nLLM分析:\n{llm_response}")
+        
+        # 记录交易计划到日志
+        plan_summary = f"Trader Plan: {trading_plan.direction} {trading_plan.total_position_usdt} USDT @ {current_price:.2f}, " \
+                     f"SL: {trading_plan.stop_loss_orders[0]['trigger_price']:.2f}, " \
+                     f"TP: {[tp['price'] for tp in trading_plan.take_profit_orders]}"
+        logger.info(f"{plan_summary}\nExecution Notes: {trading_plan.execution_notes}", tag="Trader")
 
         return trading_plan
 
@@ -424,6 +430,9 @@ class PortfolioManagerAgent:
                     decision_text = "".join(getattr(c, "text", str(c)) for c in content)
                 else:
                     decision_text = str(content)
+                
+                # 记录投资组合经理决策到日志
+                logger.info(f"Portfolio Manager Decision: {decision_text}", tag="Decision")
 
         # 4. 记录决策历史
         self._decision_framework.record_decision(

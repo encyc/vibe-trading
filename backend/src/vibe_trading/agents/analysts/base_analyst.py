@@ -3,11 +3,11 @@
 
 提供分析师的通用实现。
 """
-import logging
 from typing import Dict, Optional
 
 from pi_agent_core import Agent, AgentOptions
 from pi_ai.config import get_model_from_config
+from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
 from vibe_trading.config.prompts import (
@@ -18,7 +18,7 @@ from vibe_trading.config.prompts import (
 from vibe_trading.config.settings import get_settings
 from vibe_trading.agents.agent_factory import ToolContext
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Prompt 映射
 ANALYST_PROMPTS = {
@@ -72,8 +72,14 @@ class BaseAnalystAgent:
             if last_assistant:
                 content = last_assistant[-1].content
                 if isinstance(content, list):
-                    return "".join(getattr(c, "text", str(c)) for c in content)
-                return str(content)
+                    response = "".join(getattr(c, "text", str(c)) for c in content)
+                else:
+                    response = str(content)
+                
+                # 记录分析结果到日志
+                logger.info(f"{self.config.name} Analysis: {response}", tag="Analyst")
+                
+                return response
 
         return "Analysis failed - no response from agent"
 

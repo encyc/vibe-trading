@@ -3,11 +3,11 @@
 
 包括看涨研究员、看跌研究员和研究经理（增强版）。
 """
-import logging
 from typing import Dict, List, Optional
 
 from pi_agent_core import Agent, AgentOptions
 from pi_ai.config import get_model_from_config
+from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
 from vibe_trading.config.prompts import (
@@ -28,7 +28,7 @@ from vibe_trading.agents.researchers.debate_analyzer import (
     ArgumentStrength,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ResearcherAgent:
@@ -409,7 +409,7 @@ async def run_debate_round(
     bear_history: str,
 ) -> tuple:
     """执行一轮辩论"""
-    from pi_logger import step, info
+    from pi_logger import step, info, logger
 
     step("Bull 发言...", tag="Debate")
     # Bull 回应
@@ -419,6 +419,9 @@ async def run_debate_round(
         opponent_argument=bear_history.split("\n")[-1] if bear_history else None,
     )
     info("Bull 回应完成", tag="Bull")
+    
+    # 记录Bull发言内容到日志
+    logger.info(f"Bull: {bull_response}", tag="Bull")
 
     step("Bear 发言...", tag="Debate")
     # Bear 回应
@@ -428,6 +431,9 @@ async def run_debate_round(
         opponent_argument=bull_response.split("\n")[-1] if bull_response else None,
     )
     info("Bear 回应完成", tag="Bear")
+    
+    # 记录Bear发言内容到日志
+    logger.info(f"Bear: {bear_response}", tag="Bear")
 
     return bull_response, bear_response
 

@@ -3,19 +3,19 @@ Macro Analysis Agent
 
 Analyzes macro environment (trends, sentiment, major events).
 """
-import logging
 from typing import Dict, List, Optional
 from datetime import datetime
 
 from pi_agent_core import Agent, AgentOptions
 from pi_ai.config import get_model_from_config
+from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
 from vibe_trading.config.settings import get_settings
 from vibe_trading.agents.agent_factory import ToolContext
 from vibe_trading.data_sources.macro_storage import MacroState
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MacroAnalysisAgent:
@@ -154,6 +154,9 @@ Your analysis should help guide trading decisions by providing context about the
                 for content in last_message.content:
                     if hasattr(content, 'text'):
                         response_text += content.text
+                
+                # 记录宏观分析完整响应到日志
+                logger.info(f"Macro Analysis Response: {response_text}", tag="Macro")
                 
                 # Parse response
                 analysis = self._parse_analysis(response_text)

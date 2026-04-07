@@ -1,15 +1,15 @@
 """
 On Bar Thread
 
-K-line triggered main trading thread using simplified coordinator.
+K-line triggered main trading thread using full coordinator.
 """
 import asyncio
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from vibe_trading.coordinator.simplified_coordinator import (
-    SimplifiedTradingCoordinator,
+from vibe_trading.coordinator.trading_coordinator import (
+    TradingCoordinator,
     TradingDecision,
 )
 from vibe_trading.coordinator.thread_manager import ThreadManager, get_thread_manager
@@ -23,7 +23,7 @@ class OnBarThread:
     """
     On Bar thread
     
-    Subscribes to K-line data and executes simplified decision flow.
+    Subscribes to K-line data and executes full 5-phase decision flow.
     """
     
     def __init__(
@@ -45,7 +45,7 @@ class OnBarThread:
         self.thread_manager = thread_manager or get_thread_manager()
         
         # Coordinator
-        self._coordinator: Optional[SimplifiedTradingCoordinator] = None
+        self._coordinator: Optional[TradingCoordinator] = None
         
         # State
         self._running = False
@@ -62,14 +62,14 @@ class OnBarThread:
     
     async def initialize(self) -> None:
         """Initialize the thread"""
-        # Initialize coordinator
-        self._coordinator = SimplifiedTradingCoordinator(
+        # Initialize coordinator with full agent team
+        self._coordinator = TradingCoordinator(
             symbol=self.symbol,
             interval=self.interval,
         )
         await self._coordinator.initialize()
         
-        logger.info("OnBarThread initialized")
+        logger.info("OnBarThread initialized with full agent team")
     
     async def start(self) -> None:
         """Start the On Bar thread"""
@@ -147,8 +147,8 @@ class OnBarThread:
         logger.debug(f"Processing K-line: {self.symbol} @ ${close_price:.2f}")
         
         try:
-            # Execute simplified decision flow
-            decision = await self._coordinator.simplified_decision_flow(
+            # Execute full 5-phase decision flow with all 13 agents
+            decision = await self._coordinator.analyze_and_decide(
                 current_price=close_price,
                 account_balance=10000.0,  # Would get from account
                 current_positions=[],  # Would get from position manager
@@ -265,8 +265,8 @@ class OnBarThread:
         try:
             logger.info(f"Running OnBarThread once for {self.symbol} @ ${price:.2f}")
             
-            # Execute simplified decision flow
-            decision = await self._coordinator.simplified_decision_flow(
+            # Execute full 5-phase decision flow with all 13 agents
+            decision = await self._coordinator.analyze_and_decide(
                 current_price=price,
                 account_balance=10000.0,
                 current_positions=[],

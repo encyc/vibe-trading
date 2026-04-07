@@ -54,6 +54,14 @@ MAX_RETRIES = 3
 RETRY_DELAY_BASE = 1.0  # 基础延迟（秒）
 RETRY_DELAY_MULTIPLIER = 2.0  # 指数退避乘数
 
+# =============================================================================
+# LLM 并发限制
+# =============================================================================
+
+# 限制同时进行的 LLM 调用数量，避免 API 限流
+_MAX_LLM_CONCURRENT = 3
+_llm_semaphore = asyncio.Semaphore(_MAX_LLM_CONCURRENT)
+
 
 async def _retry_stream_operation(
     operation,
@@ -496,55 +504,60 @@ async def _stream_assistant_response(
 
     async def _do_stream():
         """执行单次流式操作"""
-        # stream_function 现在是 async 函数，需要 await
-        # 使用 active_model（可能经过路由选择）替代 config.model
-        response = await stream_function(active_model, llm_context, **stream_options)
+        # 限制 LLM 并发调用，避免 API 限流
+        await _llm_semaphore.acquire()
+        try:
+            # stream_function 现在是 async 函数，需要 await
+            # 使用 active_model（可能经过路由选择）替代 config.model
+            response = await stream_function(active_model, llm_context, **stream_options)
 
-        partial_message: Optional[AssistantMessage] = None
-        added_partial = False
+            partial_message: Optional[AssistantMessage] = None
+            added_partial = False
 
-        async for event in response:
-            event_type = event.type
+            async for event in response:
+                event_type = event.type
 
-            if event_type == "start":
-                partial_message = event.partial
-                context.messages.append(partial_message)
-                added_partial = True
-                stream.push(MessageStartEvent(message=copy.copy(partial_message)))
-
-            elif event_type in (
-                "text_start",
-                "text_delta",
-                "text_end",
-                "thinking_start",
-                "thinking_delta",
-                "thinking_end",
-                "toolcall_start",
-                "toolcall_delta",
-                "toolcall_end",
-            ):
-                if partial_message:
+                if event_type == "start":
                     partial_message = event.partial
-                    context.messages[-1] = partial_message
-                    stream.push(
-                        MessageUpdateEvent(
-                            message=copy.copy(partial_message),
-                            assistant_message_event=event,
+                    context.messages.append(partial_message)
+                    added_partial = True
+                    stream.push(MessageStartEvent(message=copy.copy(partial_message)))
+
+                elif event_type in (
+                    "text_start",
+                    "text_delta",
+                    "text_end",
+                    "thinking_start",
+                    "thinking_delta",
+                    "thinking_end",
+                    "toolcall_start",
+                    "toolcall_delta",
+                    "toolcall_end",
+                ):
+                    if partial_message:
+                        partial_message = event.partial
+                        context.messages[-1] = partial_message
+                        stream.push(
+                            MessageUpdateEvent(
+                                message=copy.copy(partial_message),
+                                assistant_message_event=event,
+                            )
                         )
-                    )
 
-            elif event_type in ("done", "error"):
-                final_message = await response.result()
-                if added_partial:
-                    context.messages[-1] = final_message
-                else:
-                    context.messages.append(final_message)
-                if not added_partial:
-                    stream.push(MessageStartEvent(message=copy.copy(final_message)))
-                stream.push(MessageEndEvent(message=final_message))
-                return final_message
+                elif event_type in ("done", "error"):
+                    final_message = await response.result()
+                    if added_partial:
+                        context.messages[-1] = final_message
+                    else:
+                        context.messages.append(final_message)
+                    if not added_partial:
+                        stream.push(MessageStartEvent(message=copy.copy(final_message)))
+                    stream.push(MessageEndEvent(message=final_message))
+                    return final_message
 
-        return await response.result()
+            return await response.result()
+        finally:
+            _llm_semaphore.release()
 
     # 带重试执行流式操作
     return await _retry_stream_operation(_do_stream, "LLM stream")
