@@ -41,11 +41,13 @@ uv pip install -e .
 ## ⚙️ 配置
 
 1. 复制配置文件：
+
 ```bash
 cp backend/.env.example backend/.env
 ```
 
 2. 配置API密钥（在 `.env` 文件中）：
+
 ```bash
 BINANCE_TESTNET_API_KEY=your_key
 BINANCE_TESTNET_API_SECRET=your_secret
@@ -118,6 +120,7 @@ uv run test_historical.py  # 访问 http://localhost:8000
 ### Agent Tools
 
 23个工具按角色分配：
+
 - 技术分析工具（9个）：指标、趋势、支撑阻力、K线形态
 - 基本面工具（5个）：资金费率、多空比、持仓量
 - 情绪分析工具（3个）：恐惧贪婪指数、新闻情绪
@@ -129,6 +132,7 @@ uv run test_historical.py  # 访问 http://localhost:8000
 ### Trigger机制
 
 可扩展的事件触发系统：
+
 - 价格Trigger：暴跌、暴涨、突破关键位
 - 风控Trigger：VaR超标、连续亏损、保证金不足
 - 用户可自定义Trigger
@@ -141,23 +145,24 @@ uv run test_historical.py  # 访问 http://localhost:8000
 
 ## 📖 详细文档
 
-| 文档 | 说明 |
-| :--- | :--- |
-| [系统架构](./docs/ARCHITECTURE.md) | 整体架构、组件说明、数据流 |
-| [Agent详解](./docs/AGENTS.md) | 12个Agent的功能、工具、协作方式 |
-| [多线程架构](./docs/MULTI_THREAD.md) | 三线程系统详解 |
-| [协作流程](./docs/WORKFLOW.md) | 阶段间数据传递和消息机制 |
-| [Agent工具](./docs/TOOLS.md) | 23个工具的详细说明 |
-| [风险管理](./docs/RISK_MANAGEMENT.md) | 4层约束系统、风控指标 |
-| [性能指标](./docs/PERFORMANCE.md) | 性能测试、优化历史 |
-| [改进历史](./docs/IMPROVEMENTS.md) | 版本历史和未来规划 |
+| 文档                               | 说明                            |
+| :--------------------------------- | :------------------------------ |
+| [系统架构](./docs/ARCHITECTURE.md)    | 整体架构、组件说明、数据流      |
+| [Agent详解](./docs/AGENTS.md)         | 12个Agent的功能、工具、协作方式 |
+| [多线程架构](./docs/MULTI_THREAD.md)  | 三线程系统详解                  |
+| [协作流程](./docs/WORKFLOW.md)        | 阶段间数据传递和消息机制        |
+| [Agent工具](./docs/TOOLS.md)          | 23个工具的详细说明              |
+| [风险管理](./docs/RISK_MANAGEMENT.md) | 4层约束系统、风控指标           |
+| [性能指标](./docs/PERFORMANCE.md)     | 性能测试、优化历史              |
+| [改进历史](./docs/IMPROVEMENTS.md)    | 版本历史和未来规划              |
 
 ## 📚 灵感来源
 
 本项目从以下项目汲取灵感：
+
 - [TradeAgents](https://github.com/shrimo/TradeAgents) - Agent协作架构
-- [pi_ai](https://github.com/your-org/pi_ai) - LLM抽象层
-- [pi_agent_core](https://github.com/your-org/pi_agent_core) - Agent框架
+- [pi_mono](https://github.com/badlogic/pi-mono) - Agent框架
+- [py_mono](https://github.com/encyc/py_mono) - Agent框架(个人Python复刻)
 
 ## ⚠️ 免责声明
 
