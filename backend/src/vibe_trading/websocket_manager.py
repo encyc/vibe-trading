@@ -57,6 +57,9 @@ class WebSocketManager:
         self._active_connections: Dict[str, Any] = {}
         self._running = False
 
+        # 回调任务管理
+        self._callback_tasks: Set[asyncio.Task] = set()
+
         # 重连配置
         self._max_reconnect_attempts = 5
         self._reconnect_delay = 5  # 秒
@@ -281,7 +284,10 @@ class WebSocketManager:
                 try:
                     logger.info(f"触发回调处理: {kline.symbol} @ ${kline.close:.2f}")
                     # 将回调处理放入后台任务，避免阻塞消息接收
-                    asyncio.create_task(self._execute_callback(stream_config.callback, kline))
+                    task = asyncio.create_task(self._execute_callback(stream_config.callback, kline))
+                    # 保存任务引用，并在完成时自动清理
+                    self._callback_tasks.add(task)
+                    task.add_done_callback(self._callback_tasks.discard)
                 except Exception as e:
                     logger.error(f"回调启动失败: {e}", exc_info=True)
 
@@ -306,6 +312,18 @@ class WebSocketManager:
         """停止WebSocket连接"""
         log.info("停止WebSocket连接...")
         self._running = False
+
+        # 等待所有回调任务完成（最多5秒）
+        if self._callback_tasks:
+            log.info(f"等待 {len(self._callback_tasks)} 个回调任务完成...")
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*self._callback_tasks, return_exceptions=True),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                log.warning(f"部分回调任务未在5秒内完成，强制停止", tag="WebSocket")
+            self._callback_tasks.clear()
 
         # 关闭所有连接
         for stream_key, conn in self._active_connections.items():

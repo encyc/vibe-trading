@@ -26,6 +26,9 @@ from vibe_trading.data_sources.kline_storage import KlineStorage
 from vibe_trading.memory.memory import PersistentMemory
 from vibe_trading.coordinator.trading_coordinator import TradingCoordinator
 
+# Prime Agent导入
+from vibe_trading.prime import PrimeAgent, PrimeAgentConfig, PrimeConfig, HarnessConfig
+
 # 初始化
 app = typer.Typer(help="Vibe Trading - AI驱动的量化交易系统")
 console = Console()
@@ -229,6 +232,187 @@ def analyze(
 
 
 @app.command()
+def prime(
+    symbols: List[str] = typer.Argument(..., help="交易对符号，如 BTCUSDT ETHUSDT"),
+    interval: str = typer.Option("30m", help="K线间隔 (1m, 5m, 15m, 30m, 1h, 4h, 1d)"),
+    mode: str = typer.Option("paper", help="交易模式: paper (纸面) 或 live (实盘)"),
+    execute: bool = typer.Option(False, help="--execute: 实盘模式下真正执行订单"),
+    log_level: str = typer.Option("INFO", help="日志级别: DEBUG, INFO, WARNING, ERROR"),
+    save_logs: bool = typer.Option(True, help="--save-logs/--no-save-logs: 是否保存日志到文件"),
+):
+    """
+    启动Prime Agent监控模式（基于pi_agent_core的新架构）
+
+    Prime Agent作为系统监控者和紧急仲裁者：
+    - 运行三线程交易系统（Macro + OnBar + Event）
+    - 监控系统健康状态（资金、仓位、风险）
+    - 检测紧急情况（价格暴跌、风险超标）
+    - 紧急情况下可覆盖决策或直接调用Subagent
+
+    正常情况：Subagents按5阶段流程协作工作
+    紧急情况：Prime Agent介入并采取保护措施
+
+    示例:
+        # 纸面交易
+        python -m vibe_trading.cli prime BTCUSDT
+
+        # 实盘交易 (仅打印订单)
+        python -m vibe_trading.cli prime BTCUSDT --mode live
+
+        # 实盘交易 (真正执行)
+        python -m vibe_trading.cli prime BTCUSDT --mode live --execute
+    """
+    # 配置日志
+    configure(log_level=log_level, json_output=False, enable_file_logging=save_logs)
+
+    # 验证交易模式
+    trading_mode = TradingMode.PAPER
+    if mode == "live":
+        trading_mode = TradingMode.LIVE
+        # 实盘模式二次确认
+        if not execute:
+            console.print("[red]⚠️  警告: 实盘交易模式 (dry-run) - 订单将被打印但不会执行[/red]")
+            confirm = typer.confirm("确定要继续吗？")
+            if not confirm:
+                raise typer.Abort()
+        else:
+            console.print("[red]⚠️  警告: 实盘交易模式 (EXECUTE) - 订单将被真正执行！[/red]")
+            console.print("[red]⚠️  这将使用真实资金进行交易！[/red]")
+            confirm = typer.confirm("确定要继续吗？", default=False)
+            if not confirm:
+                raise typer.Abort()
+
+    # 显示启动信息
+    mode_color = "green" if trading_mode == TradingMode.PAPER else "red"
+    mode_text = "📝 纸面交易模式" if trading_mode == TradingMode.PAPER else "⚠️ 实盘交易模式"
+
+    console.print()
+    console.print(Panel(
+        f"[bold {mode_color}]{mode_text}[/bold {mode_color}]\n\n"
+        f"交易对: {', '.join(symbols)}\n"
+        f"K线周期: {interval}\n"
+        f"执行交易: {'是' if execute else '否 (仅打印)'}\n"
+        f"架构: 三线程系统 + Prime Agent监控层",
+        title="[bold magenta]🤖 Vibe Trading - Prime Agent监控模式[/bold magenta]",
+        border_style="magenta",
+    ))
+
+    console.print()
+    info(f"启动Prime Agent系统: {symbols[0]} ({interval})", tag="START")
+    separator("=", 60)
+
+    # 运行Prime Agent系统
+    asyncio.run(run_prime_system(
+        symbols=symbols,
+        interval=interval,
+        mode=trading_mode,
+        execute_trades=execute,
+        save_logs=save_logs,
+    ))
+
+
+async def run_prime_system(
+    symbols: List[str],
+    interval: str,
+    mode: TradingMode,
+    execute_trades: bool,
+    save_logs: bool = True,
+) -> None:
+    """
+    运行Prime Agent系统
+
+    Args:
+        symbols: 交易对列表
+        interval: K线间隔
+        mode: 交易模式
+        execute_trades: 是否真正执行交易
+        save_logs: 是否保存日志
+    """
+    # 配置文件日志
+    log_file_path = None
+    if save_logs:
+        from pathlib import Path
+        from datetime import datetime
+
+        # 创建logs目录
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+
+        # 生成日志文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file_path = logs_dir / f"prime_{symbols[0]}_{timestamp}.log"
+
+        configure(log_level="INFO", json_output=False, log_file=str(log_file_path))
+        info(f"日志将保存到: {log_file_path}", tag="LOG")
+    else:
+        configure(log_level="INFO", json_output=False)
+        info("文件日志已禁用", tag="LOG")
+
+    try:
+        # 创建Prime Agent配置
+        prime_config = PrimeConfig(
+            symbol=symbols[0],  # 主交易对
+            interval=interval,  # K线间隔
+            monitoring_interval=1.0,
+            max_queue_size=1000,
+            max_single_trade=1000.0 if mode == TradingMode.PAPER else 100.0,  # 纸面交易可以用更大金额
+            max_total_position=0.3,
+            enable_emergency_override=True,
+            enabled_subagents=[
+                "technical_analyst",
+                "bull_researcher",
+                "bear_researcher",
+                "research_manager",
+                "aggressive_risk_analyst",
+                "neutral_risk_analyst",
+                "conservative_risk_analyst",
+                "trader",
+                "portfolio_manager",
+                "macro_analyst",
+            ],
+        )
+
+        harness_config = HarnessConfig(
+            enable_safety_constraint=True,
+            enable_operational_constraint=True,
+            enable_behavioral_constraint=True,
+            enable_resource_constraint=True,
+        )
+
+        config = PrimeAgentConfig(
+            system_prompt=f"""你是Prime Agent，负责监控系统健康状态并在紧急情况下保护资金安全。
+
+当前配置：
+- 交易对: {symbols[0]}
+- K线周期: {interval}
+- 交易模式: {mode.value}
+
+你的职责：
+1. 监控系统健康状态（资金、仓位、风险指标）
+2. 检测紧急情况（价格暴跌、风险超标）
+3. 紧急情况下采取保护措施（平仓、减仓）
+4. 正常情况下不干预三线程系统的运行
+
+请始终以系统安全和风险控制为首要目标。""",
+            prime_config=prime_config,
+            harness_config=harness_config,
+        )
+
+        # 创建Prime Agent
+        prime_agent = PrimeAgent(config)
+
+        # 启动Prime Agent
+        await prime_agent.start()
+
+    except KeyboardInterrupt:
+        info("收到键盘中断，正在关闭Prime Agent...")
+    except Exception as e:
+        logger.error(f"Prime Agent系统错误: {e}", exc_info=True)
+    finally:
+        info("Prime Agent系统关闭完成")
+
+
+@app.command()
 def status():
     """显示系统状态"""
     settings = get_settings()
@@ -237,12 +421,13 @@ def status():
     table.add_column("项目", style="cyan")
     table.add_column("值", style="green")
 
-    table.add_row("架构", "三线程 (Macro + OnBar + Event)")
+    table.add_row("可用架构", "三线程 (Macro + OnBar + Event), Prime Agent (pi_agent_core)")
     table.add_row("交易模式", settings.trading_mode.value)
     table.add_row("交易对", ", ".join(settings.symbols))
     table.add_row("K线周期", settings.interval)
     table.add_row("数据库", settings.database_url)
     table.add_row("LLM模型", settings.llm_config_name)
+    table.add_row("Subagent数量", "10个可用 (3个待实现)")
 
     console.print(table)
 

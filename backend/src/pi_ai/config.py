@@ -121,10 +121,11 @@ class LLMConfig:
             base_url=config.get("base_url"),
         )
 
-        self.logger.info(
-            f"加载模型: {name} -> {model.id}",
-            tag=config.get("provider", "")
-        )
+        # 注释掉日志，避免重复输出
+        # self.logger.debug(
+        #     f"加载模型: {name} -> {model.id}",
+        #     tag=config.get("provider", "")
+        # )
 
         return model
 

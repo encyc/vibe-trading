@@ -6,7 +6,7 @@ Agent消息标准化
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 
 import logging
@@ -32,6 +32,7 @@ class MessageType(str, Enum):
     # 研究经理消息
     INVESTMENT_ADVICE = "investment_advice"
     RESEARCH_DECISION = "research_decision"
+    RESEARCH_RECOMMENDATION = "research_recommendation"
 
     # 风控团队消息
     RISK_ASSESSMENT = "risk_assessment"
@@ -43,12 +44,29 @@ class MessageType(str, Enum):
     TRADING_PLAN = "trading_plan"
     FINAL_DECISION = "final_decision"
     EXECUTION_ORDER = "execution_order"
+    PORTFOLIO_DECISION = "portfolio_decision"
+
+    # 宏观分析消息
+    MACRO_ANALYSIS = "macro_analysis"
+    MARKET_REGIME = "market_regime"
+    MARKET_TREND = "market_trend"
+
+    # 交易信号消息（Prime Agent架构新增）
+    BUY_SIGNAL = "buy_signal"
+    SELL_SIGNAL = "sell_signal"
+    HOLD_SIGNAL = "hold_signal"
+
+    # Prime Agent消息（Prime Agent架构新增）
+    PRIME_DECISION = "prime_decision"
+    EMERGENCY_ALERT = "emergency_alert"
+    CONSTRAINT_VIOLATION = "constraint_violation"
 
     # 系统消息
     ERROR = "error"
     WARNING = "warning"
     INFO = "info"
     STATUS_UPDATE = "status_update"
+    HEARTBEAT = "heartbeat"
 
 
 @dataclass
