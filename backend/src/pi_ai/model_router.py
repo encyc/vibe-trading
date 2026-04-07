@@ -67,10 +67,10 @@ class ModelRouter:
 
         # 2. 工具调用使用深度思考模型
         if has_tools:
-            logger.debug(f"路由选择: deep_thinking_model ({self.deep_thinking_config_name}) - has_tools")
+            # logger.debug(f"路由选择: deep_thinking_model ({self.deep_thinking_config_name}) - has_tools")
             return self.deep_thinking_model
         else:
-            logger.debug(f"路由选择: quick_thinking_model ({self.quick_thinking_config_name}) - no tools")
+            # logger.debug(f"路由选择: quick_thinking_model ({self.quick_thinking_config_name}) - no tools")
             return self.quick_thinking_model
 
     def get_model_config_name(self, has_tools: bool = False, agent_role: Optional[str] = None) -> str:
