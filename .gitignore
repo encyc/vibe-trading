@@ -64,3 +64,4 @@ docs/TECHNICAL_DOCUMENTATION.md
 docs/INTRO_ZHIHU.md
 test_*.py
 backend/test_*.py
+node_modules/*
