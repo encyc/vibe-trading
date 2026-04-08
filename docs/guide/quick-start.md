@@ -1,6 +1,12 @@
-# 快速开始
+# 快速开始指南
 
-本指南将帮助你快速搭建和运行 Vibe Trading 系统。
+欢迎使用 Vibe Trading，这是一个 AI 驱动的多Agent协作量化交易系统。本指南将帮助你在几分钟内启动并运行系统，使你能够利用多Agent协作、智能辩论和风控评估构建专业的量化交易策略。
+
+![系统架构图](https://via.placeholder.com/800x400/0a0a0f/00f0ff?text=Vibe+Trading+Architecture)
+
+::: tip 提示
+Vibe Trading 支持两种运行模式：Paper Trading（模拟交易）和 Live Trading（实盘交易）。建议新手先使用 Paper Trading 模式熟悉系统。
+:::
 
 ## 环境要求
 
@@ -8,16 +14,22 @@
 - Node.js 18+ (用于Web界面开发)
 - Git
 
-## 安装步骤
+## 快速安装
 
-### 1. 克隆项目
+### 步骤一：获取项目代码
 
 ```bash
+# 克隆最新版本
 git clone https://github.com/encyc/vibe-trading.git
 cd vibe-trading
 ```
 
-### 2. 安装后端依赖
+| 分支 | 适用场景 |
+|------|----------|
+| main | 开发版本，包含最新特性 |
+| v*.*.* | 稳定版本，推荐生产使用 |
+
+### 步骤二：安装后端依赖
 
 我们使用 `uv` 作为包管理器，它比传统的 pip 更快。
 
@@ -36,7 +48,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-### 3. 配置环境变量
+### 步骤三：配置环境变量
 
 复制示例配置文件：
 
@@ -63,11 +75,12 @@ DATABASE_URL=sqlite:///vibe_trading.db
 LOG_LEVEL=INFO
 ```
 
-::: tip 提示
-如果不配置 Binance API，系统将使用 Paper Trading 模式，不会进行真实交易。
+::: tip API Key 获取
+- **Binance API**：访问 [Binance API 管理](https://www.binance.com/en/my/settings/api-management) 创建API密钥
+- **OpenAI API**：访问 [platform.openai.com](https://platform.openai.com/api-keys) 获取API密钥
 :::
 
-### 4. 初始化数据库
+### 步骤四：初始化数据库
 
 ```bash
 cd backend
@@ -111,7 +124,7 @@ PYTHONPATH=src uv run uvicorn vibe_trading.web.server:app --host 0.0.0.0 --port 
 
 然后在浏览器中访问 `http://localhost:8000` 即可查看实时监控界面。
 
-## 使用 Prime Agent 模式
+### 使用 Prime Agent 模式
 
 Prime Agent 模式是推荐的生产模式，它包含更完善的三线程架构和监控：
 
@@ -132,33 +145,72 @@ PYTHONPATH=backend/src uv run -- vibe-trade backtest BTCUSDT --start "2024-01-01
 PYTHONPATH=backend/src uv run -- vibe-trade backtest BTCUSDT --start "2024-01-01" --end "2024-01-31" --report-format html
 ```
 
+## 故障排除
+
+### 查看服务状态
+
+```bash
+# 查看系统日志
+tail -f logs/vibe_trading.log
+
+# 查看特定模块日志
+grep "TechnicalAnalyst" logs/vibe_trading.log
+```
+
+### 常见问题
+
+<details>
+<summary><strong>依赖安装失败</strong></summary>
+
+如果网络原因导致依赖安装失败，可以尝试：
+
+```bash
+# 配置国内镜像源
+export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+uv pip install -e .
+```
+
+</details>
+
+<details>
+<summary><strong>数据库初始化失败</strong></summary>
+
+```bash
+# 删除旧数据库重新初始化
+rm backend/vibe_trading.db
+PYTHONPATH=backend/src uv run --from vibe_trading.cli vibe-trade init-db
+```
+</details>
+
+<details>
+<summary><strong>LLM API 调用失败</strong></summary>
+
+检查 `.env` 文件中的 API Key 配置是否正确，或尝试使用其他 LLM 提供商：
+
+```env
+# 使用 Anthropic
+LLM_PROVIDER=anthropic
+LLM_API_KEY=your_anthropic_key
+LLM_MODEL=claude-3-opus-20240229
+
+# 使用本地模型（如 Ollama）
+LLM_PROVIDER=openai
+LLM_API_KEY=not-needed
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=llama2
+```
+</details>
+
+::: tip 日志调试
+系统支持详细的日志输出，可以通过 `.env` 文件中的 `LOG_LEVEL` 调整：
+- `DEBUG`：详细的调试信息
+- `INFO`：正常运行信息（默认）
+- `WARNING`：警告和错误信息
+:::
+
 ## 下一步
 
-- 阅读 [项目简介](/guide/intro) 了解系统架构
-- 查看 [Agent团队](/guide/agents) 了解各个Agent的职责
-- 阅读 [系统架构](/guide/architecture) 深入了解技术实现
-- 配置 [Web监控](/guide/monitoring) 自定义监控界面
-
-## 常见问题
-
-### Q: 如何获取 Binance API 密钥？
-
-A: 访问 [Binance API 管理](https://www.binance.com/en/my/settings/api-management) 创建API密钥。建议只启用"读取"权限以测试系统。
-
-### Q: 系统支持哪些交易对？
-
-A: 目前支持 Binance 的所有现货和永续合约交易对，如 BTCUSDT、ETHUSDT 等。
-
-### Q: 如何自定义Agent？
-
-A: 参考 [自定义Agent](/guide/custom-agent) 文档。
-
-### Q: 如何查看日志？
-
-A: 日志保存在 `logs/` 目录下，同时在控制台实时输出。可以通过 `.env` 文件中的 `LOG_LEVEL` 调整日志详细程度。
-
-## 获取帮助
-
-- 查看 [GitHub Issues](https://github.com/encyc/vibe-trading/issues)
-- 阅读 [完整文档](/)
-- 加入社区讨论（待开放）
+- 了解 [项目简介](/guide/intro)：了解整体定位、技术栈与核心能力
+- 查看 [Agent团队](/guide/agents)：了解12个专业Agent的职责和功能
+- 阅读 [系统架构](/guide/architecture)：深入了解三线程架构与Agent协作流程
+- 配置 [Web监控](/guide/monitoring)：自定义量子指挥塔风格的实时监控界面

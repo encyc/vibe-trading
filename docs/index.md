@@ -14,8 +14,8 @@ hero:
       text: 快速开始
       link: /guide/quick-start
     - theme: alt
-      text: 项目简介
-      link: /guide/intro
+      text: 系统架构
+      link: /guide/architecture
     - theme: alt
       text: GitHub
       link: https://github.com/encyc/vibe-trading

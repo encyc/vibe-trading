@@ -65,3 +65,4 @@ docs/INTRO_ZHIHU.md
 test_*.py
 backend/test_*.py
 node_modules/*
+docs/node_modules/*

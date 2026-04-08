@@ -4,8 +4,8 @@ import markdownItTaskCheckbox from 'markdown-it-task-checkbox'
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   lang: 'zh-CN',
-  title: 'Vibe Trading',
-  description: 'AI驱动的多Agent协作加密货币量化交易系统',
+  title: "Vibe Trading",
+  description: "AI驱动的多Agent协作加密货币量化交易系统",
   base: '/vibe-trading/',
   ignoreDeadLinks: [
     /localhost/,
@@ -15,8 +15,7 @@ export default defineConfig({
   markdown: {
     config: (md) => {
       md.use(markdownItTaskCheckbox)
-    },
-    lineNumbers: true
+    }
   },
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
@@ -24,21 +23,15 @@ export default defineConfig({
     nav: [
       { text: '快速开始', link: '/guide/quick-start' },
       { text: '系统架构', link: '/guide/architecture' },
-      { text: 'Agent团队', link: '/guide/agents' },
-      { text: 'GitHub', link: 'https://github.com/encyc/vibe-trading' }
+      { text: 'Agent团队', link: '/guide/agents' }
     ],
 
     sidebar: [
       {
-        text: '入门指南',
+        text: '简介',
         items: [
           { text: '快速开始', link: '/guide/quick-start' },
-          { text: '项目简介', link: '/guide/intro' }
-        ]
-      },
-      {
-        text: '核心概念',
-        items: [
+          { text: '项目简介', link: '/guide/intro' },
           { text: '系统架构', link: '/guide/architecture' },
           { text: 'Agent团队', link: '/guide/agents' },
           { text: '协作流程', link: '/guide/workflow' }
@@ -58,6 +51,14 @@ export default defineConfig({
           { text: '记忆系统', link: '/guide/memory' },
           { text: '自定义Agent', link: '/guide/custom-agent' },
           { text: 'API文档', link: '/guide/api' }
+        ]
+      },
+      {
+        text: '开发指南',
+        items: [
+          { text: '参与贡献', link: '/develop/contributing' },
+          { text: '开发路线图', link: '/develop/roadmap' },
+          { text: '版本变更记录', link: '/develop/changelog' }
         ]
       }
     ],
@@ -93,9 +94,4 @@ export default defineConfig({
       next: '下一页'
     }
   },
-
-  // 自定义样式
-  head: [
-    ['link', { rel: 'icon', href: '/favicon.ico' }]
-  ]
 })
