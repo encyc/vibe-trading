@@ -1,8 +1,9 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 import markdownItTaskCheckbox from 'markdown-it-task-checkbox'
 
 // https://vitepress.dev/reference/site-config
-export default defineConfig({
+export default withMermaid(defineConfig({
   lang: 'zh-CN',
   title: "Vibe Trading",
   description: "AI驱动的多Agent协作加密货币量化交易系统",
@@ -94,4 +95,4 @@ export default defineConfig({
       next: '下一页'
     }
   },
-})
+}))
