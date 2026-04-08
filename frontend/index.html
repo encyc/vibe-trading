@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VIBE TRADING | QUANTUM COMMAND CENTER</title>
+
+    <!-- GridStack.js -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@7.2.3/dist/gridstack.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gridstack@7.2.3/dist/gridstack-all.js"></script>
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -82,66 +87,114 @@
             z-index: -1;
         }
 
-        /* 发光边框 */
-        .glow-border {
-            border: 1px solid rgba(0, 240, 255, 0.2);
-            box-shadow:
-                0 0 10px rgba(0, 240, 255, 0.1),
-                inset 0 0 10px rgba(0, 240, 255, 0.05);
+        /* GridStack 自定义样式 */
+        .grid-stack {
+            background: transparent;
         }
 
-        /* 霓虹效果 */
-        .neon-cyan {
-            color: var(--neon-cyan);
-            text-shadow: 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-cyan);
+        .grid-stack-item {
+            margin-bottom: +4px;
         }
 
-        .neon-purple {
-            color: var(--neon-purple);
-            text-shadow: 0 0 10px var(--neon-purple), 0 0 20px var(--neon-purple);
-        }
-
-        .neon-green {
-            color: var(--neon-green);
-            text-shadow: 0 0 10px var(--neon-green), 0 0 20px var(--neon-green);
-        }
-
-        .neon-red {
-            color: var(--neon-red);
-            text-shadow: 0 0 10px var(--neon-red), 0 0 20px var(--neon-red);
-        }
-
-        /* 面板样式 */
-        .panel {
-            background: rgba(18, 18, 26, 0.8);
+        .grid-stack-item-content {
+            background: rgba(18, 18, 26, 0.9);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(0, 240, 255, 0.15);
+            border: 1px solid rgba(0, 240, 255, 0.2);
             border-radius: 4px;
-            position: relative;
             overflow: hidden;
+            height: 100%;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
         }
 
-        .panel::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
-            opacity: 0.5;
+        .grid-stack-item-content:hover {
+            border-color: rgba(0, 240, 255, 0.4);
+            box-shadow: 0 0 30px rgba(0, 240, 255, 0.2);
         }
 
-        .panel-header {
-            background: rgba(0, 240, 255, 0.05);
+        .grid-stack-item-placeholder {
+            background: rgba(0, 240, 255, 0.1);
+            border: 2px dashed var(--neon-cyan);
+            border-radius: 4px;
+        }
+
+        /* GridStack 拖拽时的样式 */
+        .grid-stack-item.ui-draggable-dragging .grid-stack-item-content {
+            opacity: 0.9;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+            transform: scale(1.02);
+        }
+
+        .grid-stack-item.ui-resizable-resizing .grid-stack-item-content {
+            border-color: var(--neon-cyan);
+        }
+
+        /* 磁贴头部 */
+        .tile-header {
+            background: linear-gradient(180deg, rgba(0, 240, 255, 0.1) 0%, rgba(0, 240, 255, 0.05) 100%);
+            border-bottom: 1px solid rgba(0, 240, 255, 0.15);
             padding: 8px 12px;
-            border-bottom: 1px solid rgba(0, 240, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: grab;
+            flex-shrink: 0;
+        }
+
+        .tile-header:active {
+            cursor: grabbing;
+        }
+
+        .tile-title {
             font-family: 'Orbitron', sans-serif;
             font-size: 11px;
             font-weight: 600;
             letter-spacing: 1px;
             color: var(--neon-cyan);
             text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* GridStack 自定义手柄 */
+        .ui-resizable-se,
+        .ui-resizable-sw {
+            position: absolute;
+            bottom: 0;
+            width: 20px;
+            height: 20px;
+            background: transparent;
+            cursor: nwse-resize;
+        }
+
+        .ui-resizable-se {
+            right: 0;
+        }
+
+        .ui-resizable-sw {
+            left: 0;
+        }
+
+        .ui-resizable-se::after {
+            content: '';
+            position: absolute;
+            bottom: 4px;
+            right: 4px;
+            width: 8px;
+            height: 8px;
+            border-right: 2px solid var(--neon-cyan);
+            border-bottom: 2px solid var(--neon-cyan);
+        }
+
+        /* 磁贴内容 */
+        .tile-content {
+            padding: 12px;
+            flex: 1;
+            overflow: hidden;
+            overflow-y: auto;
+            min-height: 0;
         }
 
         /* 滚动条 */
@@ -178,27 +231,8 @@
             }
         }
 
-        @keyframes data-flow {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-        }
-
-        @keyframes rotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        @keyframes flicker {
-            0%, 100% { opacity: 1; }
-            92% { opacity: 1; }
-            93% { opacity: 0.8; }
-            94% { opacity: 1; }
-            95% { opacity: 0.9; }
-        }
-
         .animate-pulse { animation: pulse 2s ease-in-out infinite; }
         .animate-glow { animation: glow-pulse 2s ease-in-out infinite; }
-        .animate-flicker { animation: flicker 3s ease-in-out infinite; }
 
         /* 状态指示器 */
         .status-dot {
@@ -218,19 +252,15 @@
             box-shadow: 0 0 10px var(--neon-red);
         }
 
-        .status-dot.pending {
-            background: var(--neon-amber);
-            box-shadow: 0 0 10px var(--neon-amber);
-        }
-
         /* Agent 协作流程 */
         .phase-node {
             position: relative;
-            padding: 12px 16px;
+            padding: 10px 14px;
             border: 1px solid rgba(0, 240, 255, 0.2);
             border-radius: 4px;
             background: rgba(0, 240, 255, 0.05);
             transition: all 0.3s ease;
+            margin-bottom: 10px;
         }
 
         .phase-node:hover {
@@ -249,34 +279,14 @@
             background: rgba(16, 185, 129, 0.1);
         }
 
-        .phase-connector {
-            width: 2px;
-            height: 40px;
-            background: linear-gradient(180deg, var(--neon-cyan), transparent);
-            position: relative;
-        }
-
-        .phase-connector::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 8px;
-            height: 8px;
-            background: var(--neon-cyan);
-            border-radius: 50%;
-            animation: pulse 1s ease-in-out infinite;
-        }
-
         /* Agent 标签 */
         .agent-tag {
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            padding: 4px 8px;
+            padding: 3px 6px;
             border-radius: 2px;
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -294,34 +304,17 @@
 
         /* Tab 样式 */
         .tab-btn {
-            padding: 6px 12px;
+            padding: 4px 8px;
             background: transparent;
             border: 1px solid rgba(0, 240, 255, 0.2);
             color: var(--text-secondary);
             font-family: 'Orbitron', sans-serif;
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 600;
             letter-spacing: 0.5px;
             text-transform: uppercase;
             cursor: pointer;
             transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .tab-btn::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.2), transparent);
-            transition: left 0.5s ease;
-        }
-
-        .tab-btn:hover::before {
-            left: 100%;
         }
 
         .tab-btn:hover {
@@ -338,7 +331,7 @@
 
         /* 决策历史 */
         .decision-item {
-            padding: 8px 12px;
+            padding: 6px 10px;
             border-left: 2px solid rgba(0, 240, 255, 0.3);
             background: rgba(0, 240, 255, 0.02);
             margin-bottom: 4px;
@@ -356,9 +349,9 @@
 
         /* 日志 */
         .log-entry {
-            padding: 4px 8px;
+            padding: 3px 6px;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
+            font-size: 10px;
             border-bottom: 1px solid rgba(0, 240, 255, 0.05);
             transition: all 0.2s ease;
         }
@@ -375,7 +368,7 @@
         /* 市场数据 */
         .market-stat {
             text-align: center;
-            padding: 8px;
+            padding: 6px;
             background: rgba(0, 240, 255, 0.02);
             border: 1px solid rgba(0, 240, 255, 0.1);
             border-radius: 2px;
@@ -383,12 +376,12 @@
 
         .market-stat .value {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 700;
         }
 
         .market-stat .label {
-            font-size: 10px;
+            font-size: 9px;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 1px;
@@ -397,64 +390,31 @@
         .market-stat .value.up { color: var(--neon-green); }
         .market-stat .value.down { color: var(--neon-red); }
 
-        /* 数据流动效果 */
-        .data-flow-line {
-            position: relative;
-            overflow: hidden;
+        /* 霓虹效果 */
+        .neon-cyan {
+            color: var(--neon-cyan);
+            text-shadow: 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-cyan);
         }
 
-        .data-flow-line::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.5), transparent);
-            animation: data-flow 2s ease-in-out infinite;
+        .neon-purple {
+            color: var(--neon-purple);
+            text-shadow: 0 0 10px var(--neon-purple), 0 0 20px var(--neon-purple);
         }
 
-        /* 装饰元素 */
-        .corner-decoration {
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            border: 2px solid var(--neon-cyan);
-            opacity: 0.3;
+        .neon-green {
+            color: var(--neon-green);
+            text-shadow: 0 0 10px var(--neon-green), 0 0 20px var(--neon-green);
         }
 
-        .corner-decoration.top-left {
-            top: 0;
-            left: 0;
-            border-right: none;
-            border-bottom: none;
-        }
-
-        .corner-decoration.top-right {
-            top: 0;
-            right: 0;
-            border-left: none;
-            border-bottom: none;
-        }
-
-        .corner-decoration.bottom-left {
-            bottom: 0;
-            left: 0;
-            border-right: none;
-            border-top: none;
-        }
-
-        .corner-decoration.bottom-right {
-            bottom: 0;
-            right: 0;
-            border-left: none;
-            border-top: none;
+        .neon-red {
+            color: var(--neon-red);
+            text-shadow: 0 0 10px var(--neon-red), 0 0 20px var(--neon-red);
         }
 
         /* Markdown 内容 */
         .markdown-content {
-            font-size: 13px;
-            line-height: 1.6;
+            font-size: 12px;
+            line-height: 1.5;
         }
 
         .markdown-content h1,
@@ -463,8 +423,8 @@
             color: var(--neon-cyan);
             font-family: 'Orbitron', sans-serif;
             font-weight: 600;
-            margin-top: 1rem;
-            margin-bottom: 0.5rem;
+            margin-top: 0.75rem;
+            margin-bottom: 0.4rem;
         }
 
         .markdown-content strong {
@@ -476,25 +436,55 @@
             padding: 2px 6px;
             border-radius: 2px;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 11px;
+            font-size: 10px;
         }
 
         .markdown-content ul,
         .markdown-content ol {
-            margin-left: 1.5rem;
+            margin-left: 1rem;
         }
 
-        /* 响应式 */
-        @media (max-width: 1536px) {
-            .main-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
+        /* 工具栏 */
+        .toolbar {
+            background: rgba(18, 18, 26, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
         }
 
-        @media (max-width: 768px) {
-            .main-grid {
-                grid-template-columns: 1fr;
-            }
+        .toolbar-btn {
+            padding: 6px 16px;
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            color: var(--neon-cyan);
+            border-radius: 4px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .toolbar-btn:hover {
+            background: rgba(0, 240, 255, 0.2);
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+        }
+
+        /* 容器 */
+        .container {
+            max-width: 100%;
+            padding: 0 20px 20px;
+        }
+
+        .grid-stack > .grid-stack-item > .grid-stack-item-content {
+            overflow: hidden;
         }
     </style>
 </head>
@@ -502,281 +492,31 @@
     <div class="scanlines"></div>
     <div class="grid-bg"></div>
 
-    <div class="container mx-auto px-4 py-4 max-w-[1920px]">
+    <div class="container">
         <!-- 顶部栏 -->
-        <header class="mb-4">
-            <div class="panel p-4">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-6">
-                        <div>
-                            <h1 class="font-orbitron text-2xl font-bold neon-cyan tracking-wider">VIBE TRADING</h1>
-                            <p class="text-xs text-gray-400 font-rajdhani tracking-widest">QUANTUM COMMAND CENTER</p>
-                        </div>
-                        <div class="h-8 w-px bg-gray-700"></div>
-                        <div class="flex items-center gap-4">
-                            <div class="flex items-center gap-2">
-                                <span class="status-dot" id="connection-dot"></span>
-                                <span class="text-xs font-rajdhani" id="connection-text">连接中...</span>
-                            </div>
-                            <div class="font-mono text-xs text-gray-400" id="timestamp">--:--:--</div>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <button onclick="resetData()" class="tab-btn">重置系统</button>
-                    </div>
+        <header class="toolbar">
+            <div class="flex items-center gap-6">
+                <div>
+                    <h1 class="font-orbitron text-xl font-bold neon-cyan tracking-wider">VIBE TRADING</h1>
+                    <p class="text-[10px] text-gray-400 font-rajdhani tracking-widest">QUANTUM COMMAND CENTER</p>
                 </div>
+                <div class="h-6 w-px bg-gray-700"></div>
+                <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-2">
+                        <span class="status-dot" id="connection-dot"></span>
+                        <span class="text-xs font-rajdhani" id="connection-text">连接中...</span>
+                    </div>
+                    <div class="font-mono text-xs text-gray-400" id="timestamp">--:--:--</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="resetLayout()" class="toolbar-btn">重置布局</button>
+                <button onclick="resetData()" class="toolbar-btn">重置数据</button>
             </div>
         </header>
 
-        <!-- 市场概览 -->
-        <section class="mb-4">
-            <div class="panel">
-                <div class="grid grid-cols-6 gap-4 p-4">
-                    <div class="market-stat">
-                        <div class="label">交易对</div>
-                        <div class="value neon-cyan" id="market-symbol">BTCUSDT</div>
-                    </div>
-                    <div class="market-stat">
-                        <div class="label">当前价格</div>
-                        <div class="value" id="market-price">--</div>
-                    </div>
-                    <div class="market-stat">
-                        <div class="label">24h涨跌</div>
-                        <div class="value" id="market-change">--</div>
-                    </div>
-                    <div class="market-stat">
-                        <div class="label">24h成交量</div>
-                        <div class="value" id="market-volume">--</div>
-                    </div>
-                    <div class="market-stat">
-                        <div class="label">时间周期</div>
-                        <div class="value" id="market-interval">1m</div>
-                    </div>
-                    <div class="market-stat">
-                        <div class="label">K线数量</div>
-                        <div class="value" id="market-count">200</div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- 主网格 -->
-        <div class="main-grid grid grid-cols-12 gap-4 mb-4">
-
-            <!-- 左侧列：K线图表 -->
-            <div class="col-span-12 lg:col-span-4 space-y-4">
-                <div class="panel h-[500px]">
-                    <div class="panel-header flex items-center justify-between">
-                        <span>📈 实时K线图表</span>
-                        <div class="flex gap-2">
-                            <span class="text-[10px] px-2 py-0.5 rounded bg-green-500/20 text-green-400">BUY</span>
-                            <span class="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400">SELL</span>
-                            <span class="text-[10px] px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400">HOLD</span>
-                        </div>
-                    </div>
-                    <div class="p-4 h-[calc(100%-40px)]">
-                        <div id="kline-chart" class="w-full h-full"></div>
-                    </div>
-                </div>
-
-                <!-- 技术指标面板 -->
-                <div class="panel h-[300px]">
-                    <div class="panel-header">📊 技术指标</div>
-                    <div class="p-4 h-[calc(100%-40px)] overflow-y-auto">
-                        <div id="technical-indicators" class="space-y-3">
-                            <div class="flex items-center justify-between p-3 bg-gray-900/30 rounded">
-                                <span class="text-sm text-gray-400">RSI</span>
-                                <span class="font-mono text-sm" id="indicator-rsi">--</span>
-                            </div>
-                            <div class="flex items-center justify-between p-3 bg-gray-900/30 rounded">
-                                <span class="text-sm text-gray-400">MACD</span>
-                                <span class="font-mono text-sm" id="indicator-macd">--</span>
-                            </div>
-                            <div class="flex items-center justify-between p-3 bg-gray-900/30 rounded">
-                                <span class="text-sm text-gray-400">布林带</span>
-                                <span class="font-mono text-sm" id="indicator-bb">--</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 中间列：Agent协作流程 -->
-            <div class="col-span-12 lg:col-span-4 space-y-4">
-                <div class="panel h-[500px]">
-                    <div class="panel-header">🔄 Agent 协作流程</div>
-                    <div class="p-4 h-[calc(100%-40px)] overflow-y-auto">
-                        <div class="flex flex-col items-center gap-4">
-                            <!-- Phase 1 -->
-                            <div class="w-full phase-node" data-phase="analysts">
-                                <div class="flex items-center justify-between mb-2">
-                                    <span class="font-orbitron text-sm font-bold">PHASE 1</span>
-                                    <span class="text-[10px] text-gray-400">分析师团队</span>
-                                </div>
-                                <div class="flex flex-wrap gap-2">
-                                    <span class="agent-tag technical">技术</span>
-                                    <span class="agent-tag fundamental">基本面</span>
-                                    <span class="agent-tag news">新闻</span>
-                                    <span class="agent-tag sentiment">情绪</span>
-                                </div>
-                                <div class="mt-2 text-xs text-gray-500" id="phase-analysts-status">等待中...</div>
-                            </div>
-
-                            <div class="phase-connector"></div>
-
-                            <!-- Phase 2 -->
-                            <div class="w-full phase-node" data-phase="researchers">
-                                <div class="flex items-center justify-between mb-2">
-                                    <span class="font-orbitron text-sm font-bold">PHASE 2</span>
-                                    <span class="text-[10px] text-gray-400">研究员团队</span>
-                                </div>
-                                <div class="flex flex-wrap gap-2">
-                                    <span class="agent-tag bull">看涨</span>
-                                    <span class="agent-tag bear">看跌</span>
-                                    <span class="agent-tag pm">研经</span>
-                                </div>
-                                <div class="mt-2 text-xs text-gray-500" id="phase-researchers-status">等待中...</div>
-                            </div>
-
-                            <div class="phase-connector"></div>
-
-                            <!-- Phase 3 -->
-                            <div class="w-full phase-node" data-phase="risk">
-                                <div class="flex items-center justify-between mb-2">
-                                    <span class="font-orbitron text-sm font-bold">PHASE 3</span>
-                                    <span class="text-[10px] text-gray-400">风控团队</span>
-                                </div>
-                                <div class="flex flex-wrap gap-2">
-                                    <span class="agent-tag risk">激进</span>
-                                    <span class="agent-tag risk">中立</span>
-                                    <span class="agent-tag risk">保守</span>
-                                </div>
-                                <div class="mt-2 text-xs text-gray-500" id="phase-risk-status">等待中...</div>
-                            </div>
-
-                            <div class="phase-connector"></div>
-
-                            <!-- Phase 4 -->
-                            <div class="w-full phase-node" data-phase="trader">
-                                <div class="flex items-center justify-between mb-2">
-                                    <span class="font-orbitron text-sm font-bold">PHASE 4</span>
-                                    <span class="text-[10px] text-gray-400">决策层</span>
-                                </div>
-                                <div class="flex flex-wrap gap-2">
-                                    <span class="agent-tag trader">交易员</span>
-                                    <span class="agent-tag pm">PM</span>
-                                </div>
-                                <div class="mt-2 text-xs text-gray-500" id="phase-trader-status">等待中...</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 决策树 -->
-                <div class="panel h-[300px]">
-                    <div class="panel-header">🌳 决策树可视化</div>
-                    <div class="p-4 h-[calc(100%-40px)] overflow-y-auto">
-                        <div id="decision-tree" class="font-mono text-xs">
-                            <div class="text-gray-500 text-center py-8">等待决策数据...</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 右侧列：决策状态 -->
-            <div class="col-span-12 lg:col-span-4 space-y-4">
-                <!-- 当前决策 -->
-                <div class="panel h-[200px]">
-                    <div class="panel-header">🎯 当前决策</div>
-                    <div class="p-4 h-[calc(100%-40px)] flex flex-col justify-center items-center">
-                        <div class="text-6xl font-orbitron font-bold mb-2" id="current-decision">--</div>
-                        <div class="text-sm text-gray-400" id="current-rationale">等待决策...</div>
-                        <div class="mt-4 flex gap-4 text-xs">
-                            <div class="text-center">
-                                <div class="text-gray-500">置信度</div>
-                                <div class="font-mono" id="decision-confidence">--</div>
-                            </div>
-                            <div class="text-center">
-                                <div class="text-gray-500">仓位</div>
-                                <div class="font-mono" id="decision-position">--</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 决策统计 -->
-                <div class="panel h-[200px]">
-                    <div class="panel-header">📊 决策统计</div>
-                    <div class="p-4 h-[calc(100%-40px)]">
-                        <div class="grid grid-cols-3 gap-4">
-                            <div class="text-center">
-                                <div class="text-3xl font-bold neon-green" id="stat-buy">0</div>
-                                <div class="text-xs text-gray-400 mt-1">买入</div>
-                            </div>
-                            <div class="text-center">
-                                <div class="text-3xl font-bold" style="color: var(--neon-amber)" id="stat-hold">0</div>
-                                <div class="text-xs text-gray-400 mt-1">观望</div>
-                            </div>
-                            <div class="text-center">
-                                <div class="text-3xl font-bold neon-red" id="stat-sell">0</div>
-                                <div class="text-xs text-gray-400 mt-1">卖出</div>
-                            </div>
-                        </div>
-                        <div class="mt-4 pt-4 border-t border-gray-800">
-                            <div class="flex justify-between text-xs text-gray-400">
-                                <span>总决策数</span>
-                                <span class="font-mono" id="stat-total">0</span>
-                            </div>
-                            <div class="flex justify-between text-xs text-gray-400 mt-1">
-                                <span>胜率</span>
-                                <span class="font-mono" id="stat-winrate">--</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 决策历史 -->
-                <div class="panel h-[400px]">
-                    <div class="panel-header">📜 决策历史</div>
-                    <div class="p-4 h-[calc(100%-40px)] overflow-y-auto" id="decision-list">
-                        <div class="text-gray-500 text-sm text-center py-8">暂无决策记录</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 底部面板 -->
-        <div class="grid grid-cols-2 gap-4">
-            <!-- Agent 报告 -->
-            <div class="panel h-[400px]">
-                <div class="panel-header flex items-center justify-between">
-                    <span>📋 Agent 报告</span>
-                    <div class="flex gap-2">
-                        <button onclick="showReport('analysts')" class="tab-btn active" data-tab="analysts">分析师</button>
-                        <button onclick="showReport('researchers')" class="tab-btn" data-tab="researchers">研究员</button>
-                        <button onclick="showReport('risk')" class="tab-btn" data-tab="risk">风控</button>
-                        <button onclick="showReport('trader')" class="tab-btn" data-tab="trader">交易员</button>
-                        <button onclick="showReport('pm')" class="tab-btn" data-tab="pm">PM</button>
-                    </div>
-                </div>
-                <div class="p-4 h-[calc(100%-40px)] overflow-y-auto">
-                    <div id="report-content" class="markdown-content">
-                        <p class="text-gray-500 italic">等待 Agent 报告...</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 实时日志 -->
-            <div class="panel h-[400px]">
-                <div class="panel-header flex items-center justify-between">
-                    <span>🔧 实时日志</span>
-                    <button onclick="toggleLogs()" class="text-[10px] text-gray-400 hover:text-white">折叠</button>
-                </div>
-                <div class="p-4 h-[calc(100%-40px)] overflow-y-auto font-mono" id="log-container">
-                    <div class="text-gray-500 text-xs">等待日志...</div>
-                </div>
-            </div>
-        </div>
+        <!-- GridStack 网格容器 -->
+        <div class="grid-stack" id="gridstack-container"></div>
     </div>
 
     <script>
@@ -788,14 +528,314 @@
         let currentTab = 'analysts';
         let klineChart = null;
         let decisionTree = null;
+        let grid = null;
+
+        // 磁贴配置
+        const TILES = [
+            {
+                id: 'market',
+                x: 0, y: 0, w: 12, h: 2,
+                title: '📊 市场概览',
+                content: `
+                    <div class="grid grid-cols-6 gap-2">
+                        <div class="market-stat">
+                            <div class="label">交易对</div>
+                            <div class="value neon-cyan" id="market-symbol">BTCUSDT</div>
+                        </div>
+                        <div class="market-stat">
+                            <div class="label">当前价格</div>
+                            <div class="value" id="market-price">--</div>
+                        </div>
+                        <div class="market-stat">
+                            <div class="label">24h涨跌</div>
+                            <div class="value" id="market-change">--</div>
+                        </div>
+                        <div class="market-stat">
+                            <div class="label">24h成交量</div>
+                            <div class="value" id="market-volume">--</div>
+                        </div>
+                        <div class="market-stat">
+                            <div class="label">时间周期</div>
+                            <div class="value" id="market-interval">5m</div>
+                        </div>
+                        <div class="market-stat">
+                            <div class="label">K线数量</div>
+                            <div class="value" id="market-count">200</div>
+                        </div>
+                    </div>
+                `
+            },
+            {
+                id: 'kline',
+                x: 0, y: 2, w: 8, h: 6,
+                title: '📈 实时K线',
+                content: `<div id="kline-chart" class="w-full h-full"></div>`
+            },
+            {
+                id: 'indicators',
+                x: 8, y: 2, w: 4, h: 3,
+                title: '📊 技术指标',
+                content: `
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between p-2 bg-gray-900/30 rounded">
+                            <span class="text-xs text-gray-400">RSI</span>
+                            <span class="font-mono text-xs" id="indicator-rsi">--</span>
+                        </div>
+                        <div class="flex items-center justify-between p-2 bg-gray-900/30 rounded">
+                            <span class="text-xs text-gray-400">MACD</span>
+                            <span class="font-mono text-xs" id="indicator-macd">--</span>
+                        </div>
+                        <div class="flex items-center justify-between p-2 bg-gray-900/30 rounded">
+                            <span class="text-xs text-gray-400">布林带</span>
+                            <span class="font-mono text-xs" id="indicator-bb">--</span>
+                        </div>
+                    </div>
+                `
+            },
+            {
+                id: 'phases',
+                x: 8, y: 5, w: 4, h: 6,
+                title: '🔄 Agent协作',
+                content: `
+                    <div class="flex flex-col gap-2">
+                        <div class="phase-node" data-phase="analysts">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-orbitron text-xs font-bold">PHASE 1</span>
+                                <span class="text-[9px] text-gray-400">分析师</span>
+                            </div>
+                            <div class="flex flex-wrap gap-1">
+                                <span class="agent-tag technical">技术</span>
+                                <span class="agent-tag fundamental">基本面</span>
+                                <span class="agent-tag news">新闻</span>
+                                <span class="agent-tag sentiment">情绪</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-gray-500" id="phase-analysts-status">等待中...</div>
+                        </div>
+                        <div class="phase-node" data-phase="researchers">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-orbitron text-xs font-bold">PHASE 2</span>
+                                <span class="text-[9px] text-gray-400">研究员</span>
+                            </div>
+                            <div class="flex flex-wrap gap-1">
+                                <span class="agent-tag bull">看涨</span>
+                                <span class="agent-tag bear">看跌</span>
+                                <span class="agent-tag pm">研经</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-gray-500" id="phase-researchers-status">等待中...</div>
+                        </div>
+                        <div class="phase-node" data-phase="risk">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-orbitron text-xs font-bold">PHASE 3</span>
+                                <span class="text-[9px] text-gray-400">风控</span>
+                            </div>
+                            <div class="flex flex-wrap gap-1">
+                                <span class="agent-tag risk">激进</span>
+                                <span class="agent-tag risk">中立</span>
+                                <span class="agent-tag risk">保守</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-gray-500" id="phase-risk-status">等待中...</div>
+                        </div>
+                        <div class="phase-node" data-phase="trader">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="font-orbitron text-xs font-bold">PHASE 4</span>
+                                <span class="text-[9px] text-gray-400">决策</span>
+                            </div>
+                            <div class="flex flex-wrap gap-1">
+                                <span class="agent-tag trader">交易员</span>
+                                <span class="agent-tag pm">PM</span>
+                            </div>
+                            <div class="mt-1 text-[10px] text-gray-500" id="phase-trader-status">等待中...</div>
+                        </div>
+                    </div>
+                `
+            },
+            {
+                id: 'current-decision',
+                x: 0, y: 8, w: 4, h: 3,
+                title: '🎯 当前决策',
+                content: `
+                    <div class="flex flex-col justify-center items-center h-full">
+                        <div class="text-4xl font-orbitron font-bold mb-1" id="current-decision-text">--</div>
+                        <div class="text-xs text-gray-400 text-center" id="current-rationale">等待决策...</div>
+                        <div class="mt-2 flex gap-3 text-[10px]">
+                            <div class="text-center">
+                                <div class="text-gray-500">置信度</div>
+                                <div class="font-mono" id="decision-confidence">--</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-gray-500">仓位</div>
+                                <div class="font-mono" id="decision-position">--</div>
+                            </div>
+                        </div>
+                    </div>
+                `
+            },
+            {
+                id: 'stats',
+                x: 4, y: 8, w: 4, h: 3,
+                title: '📊 决策统计',
+                content: `
+                    <div class="grid grid-cols-3 gap-2 mb-2">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold neon-green" id="stat-buy">0</div>
+                            <div class="text-[9px] text-gray-400">买入</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold" style="color: var(--neon-amber)" id="stat-hold">0</div>
+                            <div class="text-[9px] text-gray-400">观望</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold neon-red" id="stat-sell">0</div>
+                            <div class="text-[9px] text-gray-400">卖出</div>
+                        </div>
+                    </div>
+                    <div class="pt-2 border-t border-gray-800">
+                        <div class="flex justify-between text-[10px] text-gray-400">
+                            <span>总决策</span>
+                            <span class="font-mono" id="stat-total">0</span>
+                        </div>
+                        <div class="flex justify-between text-[10px] text-gray-400 mt-1">
+                            <span>胜率</span>
+                            <span class="font-mono" id="stat-winrate">--</span>
+                        </div>
+                    </div>
+                `
+            },
+            {
+                id: 'history',
+                x: 8, y: 11, w: 4, h: 4,
+                title: '📜 决策历史',
+                content: `<div id="decision-list"><div class="text-gray-500 text-sm text-center py-4">暂无决策记录</div></div>`
+            },
+            {
+                id: 'decision-tree',
+                x: 0, y: 11, w: 4, h: 4,
+                title: '🌳 决策树',
+                content: `<div class="font-mono text-[10px]" id="decision-tree-content"><div class="text-gray-500 text-center py-4">等待决策数据...</div></div>`
+            },
+            {
+                id: 'reports',
+                x: 4, y: 11, w: 4, h: 4,
+                title: '📋 Agent报告',
+                content: `
+                    <div class="flex gap-1 mb-2 flex-wrap">
+                        <button onclick="showReport('analysts')" class="tab-btn active" data-tab="analysts">分析师</button>
+                        <button onclick="showReport('researchers')" class="tab-btn" data-tab="researchers">研究员</button>
+                        <button onclick="showReport('risk')" class="tab-btn" data-tab="risk">风控</button>
+                        <button onclick="showReport('trader')" class="tab-btn" data-tab="trader">交易员</button>
+                        <button onclick="showReport('pm')" class="tab-btn" data-tab="pm">PM</button>
+                    </div>
+                    <div id="report-content" class="markdown-content"><p class="text-gray-500 italic text-xs">等待 Agent 报告...</p></div>
+                `
+            },
+            {
+                id: 'logs',
+                x: 0, y: 15, w: 12, h: 4,
+                title: '🔧 实时日志',
+                content: `<div class="font-mono" id="log-container"><div class="text-gray-500 text-[10px]">等待日志...</div></div>`
+            }
+        ];
 
         // 初始化
         document.addEventListener('DOMContentLoaded', () => {
+            initGridStack();
             initKlineChart();
             connectWebSocket();
             updateTimestamp();
             setInterval(updateTimestamp, 1000);
         });
+
+        // 初始化 GridStack
+        function initGridStack() {
+            grid = GridStack.init({
+                column: 12,
+                cellHeight: 80,
+                minRow: 1,
+                margin: 8,
+                animate: true,
+                float: true,
+                removable: false,
+                acceptWidgets: true,
+                disableOneColumnMode: true,
+                disableResize: false,
+                disableDrag: false
+            }, '.grid-stack');
+
+            // 加载保存的布局
+            loadLayout();
+
+            // 监听布局变化
+            grid.on('change', (event, items) => {
+                saveLayout();
+            });
+
+            // 监听调整大小事件，调整图表大小
+            grid.on('resizestop', (event, el) => {
+                if (klineChart) {
+                    klineChart.resize();
+                }
+            });
+        }
+
+        // 创建磁贴
+        function createTile(tile) {
+            const widget = document.createElement('div');
+            widget.className = 'grid-stack-item';
+            widget.setAttribute('gs-x', tile.x);
+            widget.setAttribute('gs-y', tile.y);
+            widget.setAttribute('gs-w', tile.w);
+            widget.setAttribute('gs-h', tile.h);
+            widget.setAttribute('gs-id', tile.id);
+
+            widget.innerHTML = `
+                <div class="grid-stack-item-content">
+                    <div class="tile-header">
+                        <div class="tile-title">${tile.title}</div>
+                    </div>
+                    <div class="tile-content">${tile.content}</div>
+                </div>
+            `;
+
+            return widget;
+        }
+
+        // 加载布局
+        function loadLayout() {
+            const saved = localStorage.getItem('vibe-trading-gridstack-layout');
+            if (saved) {
+                try {
+                    const layout = JSON.parse(saved);
+                    grid.load(layout, true);
+                } catch (e) {
+                    console.error('Failed to load layout:', e);
+                    // 加载默认布局
+                    loadDefaultLayout();
+                }
+            } else {
+                loadDefaultLayout();
+            }
+        }
+
+        // 加载默认布局
+        function loadDefaultLayout() {
+            TILES.forEach(tile => {
+                const widget = createTile(tile);
+                grid.addWidget(widget);
+            });
+        }
+
+        // 保存布局
+        function saveLayout() {
+            const layout = grid.save(false);
+            localStorage.setItem('vibe-trading-gridstack-layout', JSON.stringify(layout));
+        }
+
+        // 重置布局
+        function resetLayout() {
+            localStorage.removeItem('vibe-trading-gridstack-layout');
+            grid.removeAll();
+            loadDefaultLayout();
+        }
 
         // 更新时间戳
         function updateTimestamp() {
@@ -871,7 +911,9 @@
                 }]
             });
 
-            window.addEventListener('resize', () => klineChart.resize());
+            window.addEventListener('resize', () => {
+                klineChart.resize();
+            });
         }
 
         // WebSocket 连接
@@ -1001,7 +1043,6 @@
             priceEl.textContent = '$' + price.toFixed(2);
             priceEl.className = 'value ' + (kline.close >= kline.open ? 'up' : 'down');
 
-            // 更新涨跌幅
             if (klineData.length > 1) {
                 const prevClose = klineData[klineData.length - 2].close;
                 const change = ((price - prevClose) / prevClose * 100);
@@ -1015,7 +1056,7 @@
         function updateDecisionList() {
             const container = document.getElementById('decision-list');
             if (decisions.length === 0) {
-                container.innerHTML = '<div class="text-gray-500 text-sm text-center py-8">暂无决策记录</div>';
+                container.innerHTML = '<div class="text-gray-500 text-sm text-center py-4">暂无决策记录</div>';
                 return;
             }
 
@@ -1024,11 +1065,11 @@
                 return `
                     <div class="decision-item ${type}">
                         <div class="flex items-center justify-between mb-1">
-                            <span class="text-xs text-gray-500 font-mono">#${d.index}</span>
-                            <span class="text-xs font-bold" style="color: ${d.decision === 'HOLD' ? 'var(--neon-amber)' : (d.decision.includes('BUY') ? 'var(--neon-green)' : 'var(--neon-red)')}">${d.decision}</span>
+                            <span class="text-[10px] text-gray-500 font-mono">#${d.index}</span>
+                            <span class="text-[10px] font-bold" style="color: ${d.decision === 'HOLD' ? 'var(--neon-amber)' : (d.decision.includes('BUY') ? 'var(--neon-green)' : 'var(--neon-red)')}">${d.decision}</span>
                         </div>
-                        <div class="text-sm font-mono">$${d.close?.toFixed(2) || '--'}</div>
-                        <div class="text-xs text-gray-500 truncate mt-1">${d.rationale?.substring(0, 60) || ''}</div>
+                        <div class="text-xs font-mono">$${d.close?.toFixed(2) || '--'}</div>
+                        <div class="text-[10px] text-gray-500 truncate mt-1">${d.rationale?.substring(0, 60) || ''}</div>
                     </div>
                 `;
             }).join('');
@@ -1045,7 +1086,6 @@
             document.getElementById('stat-hold').textContent = holdCount;
             document.getElementById('stat-total').textContent = decisions.length;
 
-            // 计算胜率（简化）
             const winCount = decisions.filter(d => {
                 if (!d.close || !d.pnl) return false;
                 return d.pnl > 0;
@@ -1056,11 +1096,11 @@
 
         // 更新当前决策
         function updateCurrentDecision(decision) {
-            const el = document.getElementById('current-decision');
+            const el = document.getElementById('current-decision-text');
             const rationale = document.getElementById('current-rationale');
 
             el.textContent = decision.decision;
-            el.className = 'text-6xl font-orbitron font-bold mb-2 ' +
+            el.className = 'text-4xl font-orbitron font-bold mb-1 ' +
                 (decision.decision === 'HOLD' ? 'text-[var(--neon-amber)]' :
                  (decision.decision.includes('BUY') ? 'neon-green' : 'neon-red'));
 
@@ -1085,23 +1125,21 @@
 
             const phaseNodes = document.querySelectorAll('.phase-node');
 
-            // 重置所有节点
             phaseNodes.forEach(node => {
                 node.classList.remove('active', 'completed');
             });
 
-            // 更新当前阶段
             if (data.phase && phaseMap[data.phase]) {
                 const statusEl = document.getElementById(phaseMap[data.phase]);
                 const nodeEl = document.querySelector(`.phase-node[data-phase="${data.phase}"]`);
 
                 if (data.status === 'running') {
                     statusEl.textContent = '运行中...';
-                    statusEl.className = 'mt-2 text-xs text-[var(--neon-cyan)]';
+                    statusEl.className = 'mt-1 text-[10px] text-[var(--neon-cyan)]';
                     nodeEl.classList.add('active');
                 } else if (data.status === 'completed') {
                     statusEl.textContent = '完成';
-                    statusEl.className = 'mt-2 text-xs text-[var(--neon-green)]';
+                    statusEl.className = 'mt-1 text-[10px] text-[var(--neon-green)]';
                     nodeEl.classList.add('completed');
                 }
             }
@@ -1120,7 +1158,7 @@
             const reports = agentReports[tab] || agentReports[''] || {};
 
             if (Object.keys(reports).length === 0) {
-                container.innerHTML = '<p class="text-gray-500 italic">暂无报告</p>';
+                container.innerHTML = '<p class="text-gray-500 italic text-xs">暂无报告</p>';
                 return;
             }
 
@@ -1129,7 +1167,7 @@
                 content += `### ${agent}\n\n${marked.parse(report)}\n\n---\n\n`;
             }
 
-            container.innerHTML = content || '<p class="text-gray-500 italic">暂无报告</p>';
+            container.innerHTML = content || '<p class="text-gray-500 italic text-xs">暂无报告</p>';
         }
 
         // 添加日志
@@ -1145,7 +1183,6 @@
             container.appendChild(logEntry);
             container.scrollTop = container.scrollHeight;
 
-            // 限制日志数量
             while (container.children.length > 100) {
                 container.removeChild(container.firstChild);
             }
@@ -1171,25 +1208,17 @@
         async function resetData() {
             try {
                 await fetch('/api/reset', { method: 'POST' });
-                document.getElementById('log-container').innerHTML = '<div class="text-gray-500 text-xs">已重置</div>';
+                document.getElementById('log-container').innerHTML = '<div class="text-gray-500 text-[10px]">已重置</div>';
             } catch (e) {
                 console.error('Reset failed:', e);
             }
         }
 
-        // 折叠日志
-        let logsExpanded = true;
-        function toggleLogs() {
-            const container = document.getElementById('log-container');
-            logsExpanded = !logsExpanded;
-            container.style.maxHeight = logsExpanded ? '15rem' : '3rem';
-        }
-
         // 更新决策树
         function updateDecisionTree() {
-            const container = document.getElementById('decision-tree');
+            const container = document.getElementById('decision-tree-content');
             if (!decisionTree || !decisionTree.root) {
-                container.innerHTML = '<div class="text-gray-500 text-sm text-center py-8">等待决策数据...</div>';
+                container.innerHTML = '<div class="text-gray-500 text-sm text-center py-4">等待决策数据...</div>';
                 return;
             }
 
@@ -1207,14 +1236,14 @@
             html += `<div class="text-[var(--neon-cyan)]">${node.label || node.phase}</div>`;
 
             if (node.duration) {
-                html += `<div class="text-gray-500 text-[10px]">⏱ ${node.duration.toFixed(2)}s</div>`;
+                html += `<div class="text-gray-500 text-[9px]">⏱ ${node.duration.toFixed(2)}s</div>`;
             }
 
             if (node.agents) {
                 html += '<div class="mt-1 flex flex-wrap gap-1">';
                 node.agents.forEach(agent => {
                     const status = agent.status === 'completed' ? 'text-[var(--neon-green)]' : 'text-[var(--neon-amber)]';
-                    html += `<span class="text-[10px] ${status}">${agent.name}</span>`;
+                    html += `<span class="text-[9px] ${status}">${agent.name}</span>`;
                 });
                 html += '</div>';
             }
@@ -1222,7 +1251,7 @@
             html += '</div>';
 
             if (node.children && node.children.length > 0) {
-                html += '<div class="ml-4 border-l border-gray-700 pl-2">';
+                html += '<div class="ml-3 border-l border-gray-700 pl-2">';
                 node.children.forEach(child => {
                     html += renderTreeNode(child, depth + 1);
                 });
