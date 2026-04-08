@@ -3,360 +3,777 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vibe Trading - 历史数据回测</title>
+    <title>VIBE TRADING | QUANTUM COMMAND CENTER</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap');
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a2e;
+            --border-glow: rgba(0, 240, 255, 0.3);
+            --neon-cyan: #00f0ff;
+            --neon-purple: #8b5cf6;
+            --neon-green: #10b981;
+            --neon-red: #ef4444;
+            --neon-amber: #f59e0b;
+            --neon-rose: #f43f5e;
+            --neon-pink: #ec4899;
+            --neon-blue: #3b82f6;
+            --neon-teal: #14b8a6;
+            --neon-gold: #fbbf24;
+            --text-primary: #ffffff;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+        }
 
-        * { font-family: 'Inter', sans-serif; }
-        code, pre, .mono { font-family: 'JetBrains Mono', monospace; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-        /* 自定义滚动条 */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #1a1a2e; }
-        ::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #718096; }
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .font-orbitron { font-family: 'Orbitron', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .font-rajdhani { font-family: 'Rajdhani', sans-serif; }
+
+        /* 扫描线背景效果 */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.1) 2px,
+                rgba(0, 0, 0, 0.1) 4px
+            );
+            z-index: 1000;
+        }
+
+        /* 网格背景 */
+        .grid-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        /* 发光边框 */
+        .glow-border {
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            box-shadow:
+                0 0 10px rgba(0, 240, 255, 0.1),
+                inset 0 0 10px rgba(0, 240, 255, 0.05);
+        }
+
+        /* 霓虹效果 */
+        .neon-cyan {
+            color: var(--neon-cyan);
+            text-shadow: 0 0 10px var(--neon-cyan), 0 0 20px var(--neon-cyan);
+        }
+
+        .neon-purple {
+            color: var(--neon-purple);
+            text-shadow: 0 0 10px var(--neon-purple), 0 0 20px var(--neon-purple);
+        }
+
+        .neon-green {
+            color: var(--neon-green);
+            text-shadow: 0 0 10px var(--neon-green), 0 0 20px var(--neon-green);
+        }
+
+        .neon-red {
+            color: var(--neon-red);
+            text-shadow: 0 0 10px var(--neon-red), 0 0 20px var(--neon-red);
+        }
+
+        /* 面板样式 */
+        .panel {
+            background: rgba(18, 18, 26, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 240, 255, 0.15);
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+            opacity: 0.5;
+        }
+
+        .panel-header {
+            background: rgba(0, 240, 255, 0.05);
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.1);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            color: var(--neon-cyan);
+            text-transform: uppercase;
+        }
+
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 240, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 240, 255, 0.5);
+        }
 
         /* 动画 */
-        @keyframes pulse-ring {
-            0% { transform: scale(0.8); opacity: 1; }
-            100% { transform: scale(1.3); opacity: 0; }
-        }
-        @keyframes flow-arrow {
-            0%, 100% { transform: translateX(0); }
-            50% { transform: translateX(5px); }
-        }
-        .animate-pulse-ring { animation: pulse-ring 1.5s ease-out infinite; }
-        .animate-flow { animation: flow-arrow 1s ease-in-out infinite; }
-
-        /* Glassmorphism */
-        .glass {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        /* Markdown 样式 */
-        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
-            color: #60a5fa;
-            font-weight: 600;
-            margin-top: 1rem;
-            margin-bottom: 0.5rem;
-        }
-        .markdown-content ul, .markdown-content ol {
-            margin-left: 1.5rem;
-            margin-bottom: 0.5rem;
-        }
-        .markdown-content li { margin-bottom: 0.25rem; }
-        .markdown-content strong { color: #fcd34d; }
-        .markdown-content code {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 0.125rem 0.375rem;
-            border-radius: 0.25rem;
-            font-size: 0.875rem;
-        }
-
-        /* 状态指示器 */
-        .status-running { color: #fbbf24; }
-        .status-completed { color: #34d399; }
-        .status-error { color: #f87171; }
-
-        /* Tab 样式 */
-        .tab-btn {
-            transition: all 0.2s ease;
-        }
-        .tab-btn.active {
-            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-            color: white;
-        }
-
-        /* 决策树样式 */
-        .decision-tree {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            line-height: 1.6;
-        }
-        .tree-node {
-            position: relative;
-            padding: 8px 12px;
-            margin: 4px 0;
-            border-radius: 6px;
-            transition: all 0.2s ease;
-        }
-        .tree-node:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-        .tree-node.pending {
-            border-left: 3px solid #6b7280;
-            opacity: 0.6;
-        }
-        .tree-node.running {
-            border-left: 3px solid #fbbf24;
-            background: rgba(251, 191, 36, 0.1);
-        }
-        .tree-node.completed {
-            border-left: 3px solid #34d399;
-        }
-        .tree-node.error {
-            border-left: 3px solid #f87171;
-            background: rgba(248, 113, 113, 0.1);
-        }
-        .tree-label {
-            font-weight: 500;
-            margin-bottom: 4px;
-        }
-        .tree-meta {
-            font-size: 11px;
-            color: #9ca3af;
-        }
-        .tree-content {
-            margin-top: 6px;
-            padding-left: 12px;
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .tree-children {
-            margin-left: 20px;
-            padding-left: 12px;
-            border-left: 1px dashed rgba(255, 255, 255, 0.2);
-        }
-        .tree-agent {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 2px 8px;
-            margin: 2px;
-            border-radius: 4px;
-            font-size: 11px;
-        }
-        .tree-agent.success {
-            background: rgba(52, 211, 153, 0.2);
-            color: #34d399;
-        }
-        .tree-agent.running {
-            background: rgba(251, 191, 36, 0.2);
-            color: #fbbf24;
-            animation: pulse 1s infinite;
-        }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
-        .final-decision {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 8px;
-            font-weight: 600;
-            margin-top: 8px;
+
+        @keyframes glow-pulse {
+            0%, 100% {
+                box-shadow: 0 0 5px rgba(0, 240, 255, 0.3);
+            }
+            50% {
+                box-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
+            }
         }
-        .final-decision.buy { background: rgba(52, 211, 153, 0.2); color: #34d399; }
-        .final-decision.sell { background: rgba(248, 113, 113, 0.2); color: #f87171; }
-        .final-decision.hold { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+
+        @keyframes data-flow {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            92% { opacity: 1; }
+            93% { opacity: 0.8; }
+            94% { opacity: 1; }
+            95% { opacity: 0.9; }
+        }
+
+        .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+        .animate-glow { animation: glow-pulse 2s ease-in-out infinite; }
+        .animate-flicker { animation: flicker 3s ease-in-out infinite; }
+
+        /* 状态指示器 */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.online {
+            background: var(--neon-green);
+            box-shadow: 0 0 10px var(--neon-green);
+        }
+
+        .status-dot.offline {
+            background: var(--neon-red);
+            box-shadow: 0 0 10px var(--neon-red);
+        }
+
+        .status-dot.pending {
+            background: var(--neon-amber);
+            box-shadow: 0 0 10px var(--neon-amber);
+        }
+
+        /* Agent 协作流程 */
+        .phase-node {
+            position: relative;
+            padding: 12px 16px;
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            border-radius: 4px;
+            background: rgba(0, 240, 255, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .phase-node:hover {
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+        }
+
+        .phase-node.active {
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 30px rgba(0, 240, 255, 0.5);
+            animation: glow-pulse 1.5s ease-in-out infinite;
+        }
+
+        .phase-node.completed {
+            border-color: var(--neon-green);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .phase-connector {
+            width: 2px;
+            height: 40px;
+            background: linear-gradient(180deg, var(--neon-cyan), transparent);
+            position: relative;
+        }
+
+        .phase-connector::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            background: var(--neon-cyan);
+            border-radius: 50%;
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        /* Agent 标签 */
+        .agent-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            border-radius: 2px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .agent-tag.technical { background: rgba(0, 240, 255, 0.2); color: var(--neon-cyan); border: 1px solid rgba(0, 240, 255, 0.3); }
+        .agent-tag.fundamental { background: rgba(139, 92, 246, 0.2); color: var(--neon-purple); border: 1px solid rgba(139, 92, 246, 0.3); }
+        .agent-tag.news { background: rgba(245, 158, 11, 0.2); color: var(--neon-amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+        .agent-tag.sentiment { background: rgba(244, 63, 94, 0.2); color: var(--neon-rose); border: 1px solid rgba(244, 63, 94, 0.3); }
+        .agent-tag.bull { background: rgba(16, 185, 129, 0.2); color: var(--neon-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+        .agent-tag.bear { background: rgba(239, 68, 68, 0.2); color: var(--neon-red); border: 1px solid rgba(239, 68, 68, 0.3); }
+        .agent-tag.risk { background: rgba(236, 72, 153, 0.2); color: var(--neon-pink); border: 1px solid rgba(236, 72, 153, 0.3); }
+        .agent-tag.trader { background: rgba(251, 191, 36, 0.2); color: var(--neon-gold); border: 1px solid rgba(251, 191, 36, 0.3); }
+        .agent-tag.pm { background: rgba(255, 255, 255, 0.2); color: var(--text-primary); border: 1px solid rgba(255, 255, 255, 0.3); }
+
+        /* Tab 样式 */
+        .tab-btn {
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            color: var(--text-secondary);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tab-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .tab-btn:hover::before {
+            left: 100%;
+        }
+
+        .tab-btn:hover {
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+        }
+
+        .tab-btn.active {
+            background: rgba(0, 240, 255, 0.1);
+            border-color: var(--neon-cyan);
+            color: var(--neon-cyan);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+        }
+
+        /* 决策历史 */
+        .decision-item {
+            padding: 8px 12px;
+            border-left: 2px solid rgba(0, 240, 255, 0.3);
+            background: rgba(0, 240, 255, 0.02);
+            margin-bottom: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .decision-item:hover {
+            border-left-color: var(--neon-cyan);
+            background: rgba(0, 240, 255, 0.05);
+        }
+
+        .decision-item.buy { border-left-color: var(--neon-green); }
+        .decision-item.sell { border-left-color: var(--neon-red); }
+        .decision-item.hold { border-left-color: var(--neon-amber); }
+
+        /* 日志 */
+        .log-entry {
+            padding: 4px 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.05);
+            transition: all 0.2s ease;
+        }
+
+        .log-entry:hover {
+            background: rgba(0, 240, 255, 0.02);
+        }
+
+        .log-entry.info { color: var(--neon-blue); }
+        .log-entry.success { color: var(--neon-green); }
+        .log-entry.warning { color: var(--neon-amber); }
+        .log-entry.error { color: var(--neon-red); }
+
+        /* 市场数据 */
+        .market-stat {
+            text-align: center;
+            padding: 8px;
+            background: rgba(0, 240, 255, 0.02);
+            border: 1px solid rgba(0, 240, 255, 0.1);
+            border-radius: 2px;
+        }
+
+        .market-stat .value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .market-stat .label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .market-stat .value.up { color: var(--neon-green); }
+        .market-stat .value.down { color: var(--neon-red); }
+
+        /* 数据流动效果 */
+        .data-flow-line {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .data-flow-line::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.5), transparent);
+            animation: data-flow 2s ease-in-out infinite;
+        }
+
+        /* 装饰元素 */
+        .corner-decoration {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--neon-cyan);
+            opacity: 0.3;
+        }
+
+        .corner-decoration.top-left {
+            top: 0;
+            left: 0;
+            border-right: none;
+            border-bottom: none;
+        }
+
+        .corner-decoration.top-right {
+            top: 0;
+            right: 0;
+            border-left: none;
+            border-bottom: none;
+        }
+
+        .corner-decoration.bottom-left {
+            bottom: 0;
+            left: 0;
+            border-right: none;
+            border-top: none;
+        }
+
+        .corner-decoration.bottom-right {
+            bottom: 0;
+            right: 0;
+            border-left: none;
+            border-top: none;
+        }
+
+        /* Markdown 内容 */
+        .markdown-content {
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3 {
+            color: var(--neon-cyan);
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 600;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .markdown-content strong {
+            color: var(--neon-amber);
+        }
+
+        .markdown-content code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+
+        .markdown-content ul,
+        .markdown-content ol {
+            margin-left: 1.5rem;
+        }
+
+        /* 响应式 */
+        @media (max-width: 1536px) {
+            .main-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-6 max-w-7xl">
+<body>
+    <div class="scanlines"></div>
+    <div class="grid-bg"></div>
 
-        <!-- Header -->
-        <header class="mb-6">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-                        📊 Vibe Trading 历史数据回测
-                    </h1>
-                    <p class="text-gray-400 mt-1">多 Agent 协作量化交易系统实时监控</p>
-                </div>
-                <div class="flex items-center gap-3">
-                    <div id="connection-status" class="flex items-center gap-2 px-3 py-1.5 rounded-full glass">
-                        <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
-                        <span class="text-sm">连接中...</span>
+    <div class="container mx-auto px-4 py-4 max-w-[1920px]">
+        <!-- 顶部栏 -->
+        <header class="mb-4">
+            <div class="panel p-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-6">
+                        <div>
+                            <h1 class="font-orbitron text-2xl font-bold neon-cyan tracking-wider">VIBE TRADING</h1>
+                            <p class="text-xs text-gray-400 font-rajdhani tracking-widest">QUANTUM COMMAND CENTER</p>
+                        </div>
+                        <div class="h-8 w-px bg-gray-700"></div>
+                        <div class="flex items-center gap-4">
+                            <div class="flex items-center gap-2">
+                                <span class="status-dot" id="connection-dot"></span>
+                                <span class="text-xs font-rajdhani" id="connection-text">连接中...</span>
+                            </div>
+                            <div class="font-mono text-xs text-gray-400" id="timestamp">--:--:--</div>
+                        </div>
                     </div>
-                    <button onclick="resetData()" class="px-4 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm transition">
-                        🔄 重置
-                    </button>
+                    <div class="flex items-center gap-3">
+                        <button onclick="resetData()" class="tab-btn">重置系统</button>
+                    </div>
                 </div>
             </div>
         </header>
 
+        <!-- 市场概览 -->
+        <section class="mb-4">
+            <div class="panel">
+                <div class="grid grid-cols-6 gap-4 p-4">
+                    <div class="market-stat">
+                        <div class="label">交易对</div>
+                        <div class="value neon-cyan" id="market-symbol">BTCUSDT</div>
+                    </div>
+                    <div class="market-stat">
+                        <div class="label">当前价格</div>
+                        <div class="value" id="market-price">--</div>
+                    </div>
+                    <div class="market-stat">
+                        <div class="label">24h涨跌</div>
+                        <div class="value" id="market-change">--</div>
+                    </div>
+                    <div class="market-stat">
+                        <div class="label">24h成交量</div>
+                        <div class="value" id="market-volume">--</div>
+                    </div>
+                    <div class="market-stat">
+                        <div class="label">时间周期</div>
+                        <div class="value" id="market-interval">1m</div>
+                    </div>
+                    <div class="market-stat">
+                        <div class="label">K线数量</div>
+                        <div class="value" id="market-count">200</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- 主网格 -->
-        <div class="grid grid-cols-12 gap-4">
+        <div class="main-grid grid grid-cols-12 gap-4 mb-4">
 
-            <!-- 左侧栏 - 配置和图表 -->
-            <div class="col-span-12 lg:col-span-8 space-y-4">
-
-                <!-- 配置信息卡片 -->
-                <div class="glass rounded-xl p-4">
-                    <div class="grid grid-cols-4 gap-4 text-center">
-                        <div>
-                            <div class="text-gray-400 text-xs mb-1">交易对</div>
-                            <div class="font-semibold text-blue-400" id="config-symbol">BTCUSDT</div>
+            <!-- 左侧列：K线图表 -->
+            <div class="col-span-12 lg:col-span-4 space-y-4">
+                <div class="panel h-[500px]">
+                    <div class="panel-header flex items-center justify-between">
+                        <span>📈 实时K线图表</span>
+                        <div class="flex gap-2">
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-green-500/20 text-green-400">BUY</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400">SELL</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400">HOLD</span>
                         </div>
-                        <div>
-                            <div class="text-gray-400 text-xs mb-1">时间周期</div>
-                            <div class="font-semibold" id="config-interval">1m</div>
-                        </div>
-                        <div>
-                            <div class="text-gray-400 text-xs mb-1">K线数量</div>
-                            <div class="font-semibold" id="config-count">200</div>
-                        </div>
-                        <div>
-                            <div class="text-gray-400 text-xs mb-1">当前价格</div>
-                            <div class="font-semibold text-green-400" id="config-price">--</div>
-                        </div>
+                    </div>
+                    <div class="p-4 h-[calc(100%-40px)]">
+                        <div id="kline-chart" class="w-full h-full"></div>
                     </div>
                 </div>
 
-                <!-- K线图表 -->
-                <div class="glass rounded-xl p-4">
-                    <div class="flex items-center justify-between mb-3">
-                        <h2 class="font-semibold flex items-center gap-2">
-                            📈 K线价格走势
-                        </h2>
-                        <div class="flex gap-2 text-xs">
-                            <span class="px-2 py-1 rounded bg-green-500/20 text-green-400">BUY</span>
-                            <span class="px-2 py-1 rounded bg-red-500/20 text-red-400">SELL</span>
-                            <span class="px-2 py-1 rounded bg-yellow-500/20 text-yellow-400">HOLD</span>
-                        </div>
-                    </div>
-                    <div id="kline-chart" class="h-64"></div>
-                </div>
-
-                <!-- Agent 协作流程 -->
-                <div class="glass rounded-xl p-4">
-                    <h2 class="font-semibold mb-4">🔄 Agent 协作流程</h2>
-                    <div class="flex items-center justify-between">
-                        <div class="flex flex-col items-center">
-                            <div class="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center mb-2 phase-box" data-phase="analysts">
-                                <span class="text-xl">📊</span>
+                <!-- 技术指标面板 -->
+                <div class="panel h-[300px]">
+                    <div class="panel-header">📊 技术指标</div>
+                    <div class="p-4 h-[calc(100%-40px)] overflow-y-auto">
+                        <div id="technical-indicators" class="space-y-3">
+                            <div class="flex items-center justify-between p-3 bg-gray-900/30 rounded">
+                                <span class="text-sm text-gray-400">RSI</span>
+                                <span class="font-mono text-sm" id="indicator-rsi">--</span>
                             </div>
-                            <span class="text-xs text-gray-400">分析师</span>
-                            <span class="text-xs status-text" id="phase-analysts">等待中</span>
-                        </div>
-                        <div class="flex-1 flex items-center justify-center">
-                            <div class="w-full h-0.5 bg-gray-700 relative">
-                                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flow-arrow animate-flow">→</div>
+                            <div class="flex items-center justify-between p-3 bg-gray-900/30 rounded">
+                                <span class="text-sm text-gray-400">MACD</span>
+                                <span class="font-mono text-sm" id="indicator-macd">--</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-gray-900/30 rounded">
+                                <span class="text-sm text-gray-400">布林带</span>
+                                <span class="font-mono text-sm" id="indicator-bb">--</span>
                             </div>
                         </div>
-                        <div class="flex flex-col items-center">
-                            <div class="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center mb-2 phase-box" data-phase="researchers">
-                                <span class="text-xl">🎭</span>
-                            </div>
-                            <span class="text-xs text-gray-400">研究员</span>
-                            <span class="text-xs status-text" id="phase-researchers">等待中</span>
-                        </div>
-                        <div class="flex-1 flex items-center justify-center">
-                            <div class="w-full h-0.5 bg-gray-700 relative">
-                                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flow-arrow animate-flow">→</div>
-                            </div>
-                        </div>
-                        <div class="flex flex-col items-center">
-                            <div class="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center mb-2 phase-box" data-phase="risk">
-                                <span class="text-xl">⚠️</span>
-                            </div>
-                            <span class="text-xs text-gray-400">风控</span>
-                            <span class="text-xs status-text" id="phase-risk">等待中</span>
-                        </div>
-                        <div class="flex-1 flex items-center justify-center">
-                            <div class="w-full h-0.5 bg-gray-700 relative">
-                                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flow-arrow animate-flow">→</div>
-                            </div>
-                        </div>
-                        <div class="flex flex-col items-center">
-                            <div class="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center mb-2 phase-box" data-phase="trader">
-                                <span class="text-xl">📋</span>
-                            </div>
-                            <span class="text-xs text-gray-400">交易员</span>
-                            <span class="text-xs status-text" id="phase-trader">等待中</span>
-                        </div>
-                        <div class="flex-1 flex items-center justify-center">
-                            <div class="w-full h-0.5 bg-gray-700 relative">
-                                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flow-arrow animate-flow">→</div>
-                            </div>
-                        </div>
-                        <div class="flex flex-col items-center">
-                            <div class="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mb-2 phase-box" data-phase="pm">
-                                <span class="text-xl">🎯</span>
-                            </div>
-                            <span class="text-xs text-gray-400">PM</span>
-                            <span class="text-xs status-text" id="phase-pm">等待中</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 决策树可视化 -->
-                <div class="glass rounded-xl p-4">
-                    <h2 class="font-semibold mb-4">🌳 决策树可视化</h2>
-                    <div id="decision-tree" class="min-h-48">
-                        <div class="text-gray-500 text-sm italic text-center py-8">等待决策数据...</div>
-                    </div>
-                </div>
-
-                <!-- Agent 报告 Tab -->
-                <div class="glass rounded-xl p-4">
-                    <h2 class="font-semibold mb-3">📋 Agent 报告</h2>
-                    <div class="flex gap-2 mb-4 flex-wrap">
-                        <button onclick="showReport('analysts')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700 active" data-tab="analysts">
-                            分析师
-                        </button>
-                        <button onclick="showReport('researchers')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700" data-tab="researchers">
-                            研究员辩论
-                        </button>
-                        <button onclick="showReport('risk')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700" data-tab="risk">
-                            风控团队
-                        </button>
-                        <button onclick="showReport('trader')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700" data-tab="trader">
-                            交易方案
-                        </button>
-                        <button onclick="showReport('pm')" class="tab-btn px-3 py-1.5 rounded-lg text-sm bg-gray-800 hover:bg-gray-700" data-tab="pm">
-                            最终决策
-                        </button>
-                    </div>
-                    <div id="report-content" class="markdown-content max-h-64 overflow-y-auto text-sm text-gray-300">
-                        <p class="text-gray-500 italic">等待 Agent 报告...</p>
                     </div>
                 </div>
             </div>
 
-            <!-- 右侧栏 - 决策历史和日志 -->
+            <!-- 中间列：Agent协作流程 -->
             <div class="col-span-12 lg:col-span-4 space-y-4">
+                <div class="panel h-[500px]">
+                    <div class="panel-header">🔄 Agent 协作流程</div>
+                    <div class="p-4 h-[calc(100%-40px)] overflow-y-auto">
+                        <div class="flex flex-col items-center gap-4">
+                            <!-- Phase 1 -->
+                            <div class="w-full phase-node" data-phase="analysts">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="font-orbitron text-sm font-bold">PHASE 1</span>
+                                    <span class="text-[10px] text-gray-400">分析师团队</span>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="agent-tag technical">技术</span>
+                                    <span class="agent-tag fundamental">基本面</span>
+                                    <span class="agent-tag news">新闻</span>
+                                    <span class="agent-tag sentiment">情绪</span>
+                                </div>
+                                <div class="mt-2 text-xs text-gray-500" id="phase-analysts-status">等待中...</div>
+                            </div>
+
+                            <div class="phase-connector"></div>
+
+                            <!-- Phase 2 -->
+                            <div class="w-full phase-node" data-phase="researchers">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="font-orbitron text-sm font-bold">PHASE 2</span>
+                                    <span class="text-[10px] text-gray-400">研究员团队</span>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="agent-tag bull">看涨</span>
+                                    <span class="agent-tag bear">看跌</span>
+                                    <span class="agent-tag pm">研经</span>
+                                </div>
+                                <div class="mt-2 text-xs text-gray-500" id="phase-researchers-status">等待中...</div>
+                            </div>
+
+                            <div class="phase-connector"></div>
+
+                            <!-- Phase 3 -->
+                            <div class="w-full phase-node" data-phase="risk">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="font-orbitron text-sm font-bold">PHASE 3</span>
+                                    <span class="text-[10px] text-gray-400">风控团队</span>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="agent-tag risk">激进</span>
+                                    <span class="agent-tag risk">中立</span>
+                                    <span class="agent-tag risk">保守</span>
+                                </div>
+                                <div class="mt-2 text-xs text-gray-500" id="phase-risk-status">等待中...</div>
+                            </div>
+
+                            <div class="phase-connector"></div>
+
+                            <!-- Phase 4 -->
+                            <div class="w-full phase-node" data-phase="trader">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="font-orbitron text-sm font-bold">PHASE 4</span>
+                                    <span class="text-[10px] text-gray-400">决策层</span>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="agent-tag trader">交易员</span>
+                                    <span class="agent-tag pm">PM</span>
+                                </div>
+                                <div class="mt-2 text-xs text-gray-500" id="phase-trader-status">等待中...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 决策树 -->
+                <div class="panel h-[300px]">
+                    <div class="panel-header">🌳 决策树可视化</div>
+                    <div class="p-4 h-[calc(100%-40px)] overflow-y-auto">
+                        <div id="decision-tree" class="font-mono text-xs">
+                            <div class="text-gray-500 text-center py-8">等待决策数据...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧列：决策状态 -->
+            <div class="col-span-12 lg:col-span-4 space-y-4">
+                <!-- 当前决策 -->
+                <div class="panel h-[200px]">
+                    <div class="panel-header">🎯 当前决策</div>
+                    <div class="p-4 h-[calc(100%-40px)] flex flex-col justify-center items-center">
+                        <div class="text-6xl font-orbitron font-bold mb-2" id="current-decision">--</div>
+                        <div class="text-sm text-gray-400" id="current-rationale">等待决策...</div>
+                        <div class="mt-4 flex gap-4 text-xs">
+                            <div class="text-center">
+                                <div class="text-gray-500">置信度</div>
+                                <div class="font-mono" id="decision-confidence">--</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-gray-500">仓位</div>
+                                <div class="font-mono" id="decision-position">--</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- 决策统计 -->
-                <div class="glass rounded-xl p-4">
-                    <h2 class="font-semibold mb-3">📊 决策统计</h2>
-                    <div class="grid grid-cols-3 gap-2 text-center">
-                        <div class="bg-green-500/10 rounded-lg p-2">
-                            <div class="text-2xl font-bold text-green-400" id="stat-buy">0</div>
-                            <div class="text-xs text-gray-400">买入</div>
+                <div class="panel h-[200px]">
+                    <div class="panel-header">📊 决策统计</div>
+                    <div class="p-4 h-[calc(100%-40px)]">
+                        <div class="grid grid-cols-3 gap-4">
+                            <div class="text-center">
+                                <div class="text-3xl font-bold neon-green" id="stat-buy">0</div>
+                                <div class="text-xs text-gray-400 mt-1">买入</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-3xl font-bold" style="color: var(--neon-amber)" id="stat-hold">0</div>
+                                <div class="text-xs text-gray-400 mt-1">观望</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-3xl font-bold neon-red" id="stat-sell">0</div>
+                                <div class="text-xs text-gray-400 mt-1">卖出</div>
+                            </div>
                         </div>
-                        <div class="bg-yellow-500/10 rounded-lg p-2">
-                            <div class="text-2xl font-bold text-yellow-400" id="stat-hold">0</div>
-                            <div class="text-xs text-gray-400">观望</div>
-                        </div>
-                        <div class="bg-red-500/10 rounded-lg p-2">
-                            <div class="text-2xl font-bold text-red-400" id="stat-sell">0</div>
-                            <div class="text-xs text-gray-400">卖出</div>
+                        <div class="mt-4 pt-4 border-t border-gray-800">
+                            <div class="flex justify-between text-xs text-gray-400">
+                                <span>总决策数</span>
+                                <span class="font-mono" id="stat-total">0</span>
+                            </div>
+                            <div class="flex justify-between text-xs text-gray-400 mt-1">
+                                <span>胜率</span>
+                                <span class="font-mono" id="stat-winrate">--</span>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- 决策历史 -->
-                <div class="glass rounded-xl p-4">
-                    <h2 class="font-semibold mb-3">📜 决策历史</h2>
-                    <div id="decision-list" class="space-y-2 max-h-48 overflow-y-auto">
-                        <p class="text-gray-500 text-sm italic">暂无决策记录</p>
+                <div class="panel h-[400px]">
+                    <div class="panel-header">📜 决策历史</div>
+                    <div class="p-4 h-[calc(100%-40px)] overflow-y-auto" id="decision-list">
+                        <div class="text-gray-500 text-sm text-center py-8">暂无决策记录</div>
                     </div>
                 </div>
+            </div>
+        </div>
 
-                <!-- 实时日志 -->
-                <div class="glass rounded-xl p-4">
-                    <div class="flex items-center justify-between mb-3">
-                        <h2 class="font-semibold">🔧 实时日志</h2>
-                        <button onclick="toggleLogs()" class="text-xs text-gray-400 hover:text-white">折叠</button>
+        <!-- 底部面板 -->
+        <div class="grid grid-cols-2 gap-4">
+            <!-- Agent 报告 -->
+            <div class="panel h-[400px]">
+                <div class="panel-header flex items-center justify-between">
+                    <span>📋 Agent 报告</span>
+                    <div class="flex gap-2">
+                        <button onclick="showReport('analysts')" class="tab-btn active" data-tab="analysts">分析师</button>
+                        <button onclick="showReport('researchers')" class="tab-btn" data-tab="researchers">研究员</button>
+                        <button onclick="showReport('risk')" class="tab-btn" data-tab="risk">风控</button>
+                        <button onclick="showReport('trader')" class="tab-btn" data-tab="trader">交易员</button>
+                        <button onclick="showReport('pm')" class="tab-btn" data-tab="pm">PM</button>
                     </div>
-                    <div id="log-container" class="max-h-64 overflow-y-auto text-xs mono space-y-1">
-                        <p class="text-gray-500">等待日志...</p>
+                </div>
+                <div class="p-4 h-[calc(100%-40px)] overflow-y-auto">
+                    <div id="report-content" class="markdown-content">
+                        <p class="text-gray-500 italic">等待 Agent 报告...</p>
                     </div>
+                </div>
+            </div>
+
+            <!-- 实时日志 -->
+            <div class="panel h-[400px]">
+                <div class="panel-header flex items-center justify-between">
+                    <span>🔧 实时日志</span>
+                    <button onclick="toggleLogs()" class="text-[10px] text-gray-400 hover:text-white">折叠</button>
+                </div>
+                <div class="p-4 h-[calc(100%-40px)] overflow-y-auto font-mono" id="log-container">
+                    <div class="text-gray-500 text-xs">等待日志...</div>
                 </div>
             </div>
         </div>
@@ -370,38 +787,81 @@
         let agentReports = {};
         let currentTab = 'analysts';
         let klineChart = null;
-        let decisionTree = null;  // 决策树数据
+        let decisionTree = null;
 
-        // 初始化 K线图表（蜡烛图）
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            initKlineChart();
+            connectWebSocket();
+            updateTimestamp();
+            setInterval(updateTimestamp, 1000);
+        });
+
+        // 更新时间戳
+        function updateTimestamp() {
+            const now = new Date();
+            document.getElementById('timestamp').textContent =
+                now.toLocaleTimeString('zh-CN', { hour12: false });
+        }
+
+        // 初始化 K线图表
         function initKlineChart() {
             klineChart = echarts.init(document.getElementById('kline-chart'));
             klineChart.setOption({
-                grid: { left: 10, right: 60, top: 10, bottom: 20 },
+                grid: {
+                    left: 10,
+                    right: 60,
+                    top: 10,
+                    bottom: 20
+                },
                 xAxis: {
                     type: 'category',
                     data: [],
-                    axisLine: { lineStyle: { color: '#4a5568' } },
-                    axisLabel: { color: '#9ca3af', fontSize: 10 }
+                    axisLine: {
+                        lineStyle: { color: '#4a5568' }
+                    },
+                    axisLabel: {
+                        color: '#9ca3af',
+                        fontSize: 10
+                    }
                 },
                 yAxis: {
                     type: 'value',
                     scale: true,
-                    axisLine: { lineStyle: { color: '#4a5568' } },
-                    splitLine: { lineStyle: { color: '#2d3748' } },
-                    axisLabel: { color: '#9ca3af', fontSize: 10 }
+                    axisLine: {
+                        lineStyle: { color: '#4a5568' }
+                    },
+                    splitLine: {
+                        lineStyle: { color: '#2d3748' }
+                    },
+                    axisLabel: {
+                        color: '#9ca3af',
+                        fontSize: 10
+                    }
                 },
                 dataZoom: [
                     { type: 'inside', start: 50, end: 100 },
-                    { show: true, type: 'slider', top: '90%', start: 50, end: 100 }
+                    {
+                        show: true,
+                        type: 'slider',
+                        top: '90%',
+                        start: 50,
+                        end: 100,
+                        borderColor: 'rgba(0, 240, 255, 0.3)',
+                        fillerColor: 'rgba(0, 240, 255, 0.1)',
+                        handleStyle: {
+                            color: '#00f0ff'
+                        }
+                    }
                 ],
                 series: [{
                     type: 'candlestick',
                     data: [],
                     itemStyle: {
-                        color: '#34d399',      // 涨 - 绿色
-                        color0: '#f87171',     // 跌 - 红色
-                        borderColor: '#34d399',
-                        borderColor0: '#f87171'
+                        color: '#10b981',
+                        color0: '#ef4444',
+                        borderColor: '#10b981',
+                        borderColor0: '#ef4444'
                     },
                     markPoint: {
                         data: [],
@@ -410,6 +870,8 @@
                     }
                 }]
             });
+
+            window.addEventListener('resize', () => klineChart.resize());
         }
 
         // WebSocket 连接
@@ -418,17 +880,26 @@
 
             ws.onopen = () => {
                 updateConnectionStatus(true);
-                console.log('WebSocket connected');
+                console.log('✅ WebSocket connected');
             };
 
             ws.onclose = () => {
                 updateConnectionStatus(false);
+                console.log('❌ WebSocket disconnected');
                 setTimeout(connectWebSocket, 3000);
             };
 
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
             ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                handleMessage(msg);
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleMessage(msg);
+                } catch (e) {
+                    console.error('Failed to parse message:', e);
+                }
             };
         }
 
@@ -444,12 +915,13 @@
                 case 'kline':
                     klineData.push(msg.data);
                     updateKlineChart();
-                    updateConfigPrice(msg.data.close);
+                    updateMarketData(msg.data);
                     break;
                 case 'decision':
                     decisions.push(msg.data);
                     updateDecisionList();
                     updateStats();
+                    updateCurrentDecision(msg.data);
                     break;
                 case 'log':
                     addLog(msg.data);
@@ -458,9 +930,12 @@
                     updatePhaseStatus(msg.data);
                     break;
                 case 'report':
-                    if (!agentReports[msg.data.phase]) agentReports[msg.data.phase] = {};
+                    if (!agentReports[msg.data.phase]) {
+                        agentReports[msg.data.phase] = {};
+                    }
                     agentReports[msg.data.phase][msg.data.agent] = msg.data.content;
-                    if (currentTab === msg.data.phase || (currentTab === 'analysts' && msg.data.phase === '')) {
+                    if (currentTab === msg.data.phase ||
+                        (currentTab === 'analysts' && msg.data.phase === '')) {
                         showReport(currentTab);
                     }
                     break;
@@ -490,14 +965,12 @@
         function updateKlineChart() {
             if (!klineChart || klineData.length === 0) return;
 
-            // 格式: [open, close, low, high]
             const candleData = klineData.map(k => [k.open, k.close, k.low, k.high]);
             const times = klineData.map(k => {
                 const date = new Date(k.time);
                 return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
             });
 
-            // 构建决策标记点
             const markPoints = decisions.map(d => {
                 const idx = klineData.findIndex(k => k.time === d.time);
                 if (idx === -1) return null;
@@ -506,7 +979,7 @@
                     coord: [idx, d.close],
                     value: d.decision === 'HOLD' ? '○' : (d.decision.includes('BUY') ? '↑' : '↓'),
                     itemStyle: {
-                        color: d.decision === 'HOLD' ? '#fbbf24' : (d.decision.includes('BUY') ? '#34d399' : '#f87171')
+                        color: d.decision === 'HOLD' ? '#fbbf24' : (d.decision.includes('BUY') ? '#10b981' : '#ef4444')
                     }
                 };
             }).filter(p => p !== null);
@@ -515,39 +988,50 @@
                 xAxis: { data: times },
                 series: [{
                     data: candleData,
-                    markPoint: {
-                        data: markPoints
-                    }
+                    markPoint: { data: markPoints }
                 }]
             });
         }
 
-        // 更新配置价格
-        function updateConfigPrice(price) {
-            document.getElementById('config-price').textContent = '$' + price.toFixed(2);
+        // 更新市场数据
+        function updateMarketData(kline) {
+            const priceEl = document.getElementById('market-price');
+            const price = kline.close;
+
+            priceEl.textContent = '$' + price.toFixed(2);
+            priceEl.className = 'value ' + (kline.close >= kline.open ? 'up' : 'down');
+
+            // 更新涨跌幅
+            if (klineData.length > 1) {
+                const prevClose = klineData[klineData.length - 2].close;
+                const change = ((price - prevClose) / prevClose * 100);
+                const changeEl = document.getElementById('market-change');
+                changeEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+                changeEl.className = 'value ' + (change >= 0 ? 'up' : 'down');
+            }
         }
 
         // 更新决策列表
         function updateDecisionList() {
             const container = document.getElementById('decision-list');
             if (decisions.length === 0) {
-                container.innerHTML = '<p class="text-gray-500 text-sm italic">暂无决策记录</p>';
+                container.innerHTML = '<div class="text-gray-500 text-sm text-center py-8">暂无决策记录</div>';
                 return;
             }
 
-            container.innerHTML = decisions.map(d => {
-                const colorClass = d.decision === 'HOLD' ? 'yellow' : (d.decision.includes('BUY') ? 'green' : 'red');
+            container.innerHTML = decisions.slice(-20).reverse().map(d => {
+                const type = d.decision === 'HOLD' ? 'hold' : (d.decision.includes('BUY') ? 'buy' : 'sell');
                 return `
-                    <div class="bg-gray-800/50 rounded-lg p-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs text-gray-400">#${d.index}</span>
-                            <span class="text-xs text-${colorClass}-400 font-semibold">${d.decision}</span>
+                    <div class="decision-item ${type}">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs text-gray-500 font-mono">#${d.index}</span>
+                            <span class="text-xs font-bold" style="color: ${d.decision === 'HOLD' ? 'var(--neon-amber)' : (d.decision.includes('BUY') ? 'var(--neon-green)' : 'var(--neon-red)')}">${d.decision}</span>
                         </div>
-                        <div class="text-sm">${d.close ? '$' + d.close.toFixed(2) : '--'}</div>
-                        <div class="text-xs text-gray-500 truncate">${d.rationale?.substring(0, 50) || ''}</div>
+                        <div class="text-sm font-mono">$${d.close?.toFixed(2) || '--'}</div>
+                        <div class="text-xs text-gray-500 truncate mt-1">${d.rationale?.substring(0, 60) || ''}</div>
                     </div>
                 `;
-            }).reverse().join('');
+            }).join('');
         }
 
         // 更新统计
@@ -559,18 +1043,104 @@
             document.getElementById('stat-buy').textContent = buyCount;
             document.getElementById('stat-sell').textContent = sellCount;
             document.getElementById('stat-hold').textContent = holdCount;
+            document.getElementById('stat-total').textContent = decisions.length;
+
+            // 计算胜率（简化）
+            const winCount = decisions.filter(d => {
+                if (!d.close || !d.pnl) return false;
+                return d.pnl > 0;
+            }).length;
+            const winRate = decisions.length > 0 ? (winCount / decisions.length * 100).toFixed(1) : '--';
+            document.getElementById('stat-winrate').textContent = winRate + '%';
+        }
+
+        // 更新当前决策
+        function updateCurrentDecision(decision) {
+            const el = document.getElementById('current-decision');
+            const rationale = document.getElementById('current-rationale');
+
+            el.textContent = decision.decision;
+            el.className = 'text-6xl font-orbitron font-bold mb-2 ' +
+                (decision.decision === 'HOLD' ? 'text-[var(--neon-amber)]' :
+                 (decision.decision.includes('BUY') ? 'neon-green' : 'neon-red'));
+
+            rationale.textContent = decision.rationale?.substring(0, 100) || '';
+
+            if (decision.confidence) {
+                document.getElementById('decision-confidence').textContent = decision.confidence + '%';
+            }
+            if (decision.position_size) {
+                document.getElementById('decision-position').textContent = decision.position_size + '%';
+            }
+        }
+
+        // 更新阶段状态
+        function updatePhaseStatus(data) {
+            const phaseMap = {
+                'analysts': 'phase-analysts-status',
+                'researchers': 'phase-researchers-status',
+                'risk': 'phase-risk-status',
+                'trader': 'phase-trader-status'
+            };
+
+            const phaseNodes = document.querySelectorAll('.phase-node');
+
+            // 重置所有节点
+            phaseNodes.forEach(node => {
+                node.classList.remove('active', 'completed');
+            });
+
+            // 更新当前阶段
+            if (data.phase && phaseMap[data.phase]) {
+                const statusEl = document.getElementById(phaseMap[data.phase]);
+                const nodeEl = document.querySelector(`.phase-node[data-phase="${data.phase}"]`);
+
+                if (data.status === 'running') {
+                    statusEl.textContent = '运行中...';
+                    statusEl.className = 'mt-2 text-xs text-[var(--neon-cyan)]';
+                    nodeEl.classList.add('active');
+                } else if (data.status === 'completed') {
+                    statusEl.textContent = '完成';
+                    statusEl.className = 'mt-2 text-xs text-[var(--neon-green)]';
+                    nodeEl.classList.add('completed');
+                }
+            }
+        }
+
+        // 显示报告
+        function showReport(tab) {
+            currentTab = tab;
+
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.tab === tab) btn.classList.add('active');
+            });
+
+            const container = document.getElementById('report-content');
+            const reports = agentReports[tab] || agentReports[''] || {};
+
+            if (Object.keys(reports).length === 0) {
+                container.innerHTML = '<p class="text-gray-500 italic">暂无报告</p>';
+                return;
+            }
+
+            let content = '';
+            for (const [agent, report] of Object.entries(reports)) {
+                content += `### ${agent}\n\n${marked.parse(report)}\n\n---\n\n`;
+            }
+
+            container.innerHTML = content || '<p class="text-gray-500 italic">暂无报告</p>';
         }
 
         // 添加日志
         function addLog(log) {
             const container = document.getElementById('log-container');
-            const levelColors = { info: 'text-blue-400', success: 'text-green-400', warning: 'text-yellow-400', error: 'text-red-400' };
-            const tag = log.tag ? `[${log.tag}] ` : '';
             const time = log.timestamp ? log.timestamp.substring(11, 19) : '';
+            const tag = log.tag ? `[${log.tag}]` : '';
 
             const logEntry = document.createElement('div');
-            logEntry.className = levelColors[log.level] || 'text-gray-400';
-            logEntry.innerHTML = `<span class="text-gray-600">${time}</span> ${tag}${log.message}`;
+            logEntry.className = `log-entry ${log.level || 'info'}`;
+            logEntry.innerHTML = `<span class="text-gray-600">${time}</span> ${tag} ${log.message}`;
 
             container.appendChild(logEntry);
             container.scrollTop = container.scrollHeight;
@@ -581,74 +1151,19 @@
             }
         }
 
-        // 更新阶段状态
-        function updatePhaseStatus(data) {
-            const phaseMap = {
-                'analysts': 'phase-analysts',
-                'researchers': 'phase-researchers',
-                'risk': 'phase-risk',
-                'trader': 'phase-trader',
-                'pm': 'phase-pm'
-            };
-
-            Object.keys(phaseMap).forEach(key => {
-                const statusEl = document.getElementById(phaseMap[key]);
-                const boxEl = document.querySelector(`.phase-box[data-phase="${key}"]`);
-
-                if (key === data.phase) {
-                    if (data.status === 'running') {
-                        statusEl.textContent = '运行中...';
-                        statusEl.className = 'text-xs status-running';
-                        boxEl.classList.add('animate-pulse-ring');
-                    } else if (data.status === 'completed') {
-                        statusEl.textContent = '完成';
-                        statusEl.className = 'text-xs status-completed';
-                        boxEl.classList.remove('animate-pulse-ring');
-                        boxEl.classList.add('bg-green-500/30');
-                    }
-                }
-            });
-        }
-
-        // 显示报告
-        function showReport(tab) {
-            currentTab = tab;
-
-            // 更新 tab 样式
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-                if (btn.dataset.tab === tab) btn.classList.add('active');
-            });
-
-            const container = document.getElementById('report-content');
-            let content = '';
-
-            const reports = agentReports[tab] || agentReports[''] || {};
-
-            if (Object.keys(reports).length === 0) {
-                container.innerHTML = '<p class="text-gray-500 italic">暂无报告</p>';
-                return;
-            }
-
-            for (const [agent, report] of Object.entries(reports)) {
-                content += `### ${agent}\n\n${marked.parse(report)}\n\n---\n\n`;
-            }
-
-            container.innerHTML = content || '<p class="text-gray-500 italic">暂无报告</p>';
-        }
-
         // 更新连接状态
         function updateConnectionStatus(connected) {
-            const statusEl = document.getElementById('connection-status');
-            const dot = statusEl.querySelector('span:first-child');
-            const text = statusEl.querySelector('span:last-child');
+            const dot = document.getElementById('connection-dot');
+            const text = document.getElementById('connection-text');
 
             if (connected) {
-                dot.className = 'w-2 h-2 rounded-full bg-green-400';
+                dot.className = 'status-dot online';
                 text.textContent = '已连接';
+                text.className = 'text-xs font-rajdhani text-[var(--neon-green)]';
             } else {
-                dot.className = 'w-2 h-2 rounded-full bg-red-400 animate-pulse';
+                dot.className = 'status-dot offline animate-pulse';
                 text.textContent = '连接中...';
+                text.className = 'text-xs font-rajdhani text-[var(--neon-red)]';
             }
         }
 
@@ -656,7 +1171,7 @@
         async function resetData() {
             try {
                 await fetch('/api/reset', { method: 'POST' });
-                document.getElementById('log-container').innerHTML = '<p class="text-gray-500">已重置</p>';
+                document.getElementById('log-container').innerHTML = '<div class="text-gray-500 text-xs">已重置</div>';
             } catch (e) {
                 console.error('Reset failed:', e);
             }
@@ -667,18 +1182,18 @@
         function toggleLogs() {
             const container = document.getElementById('log-container');
             logsExpanded = !logsExpanded;
-            container.style.maxHeight = logsExpanded ? '16rem' : '3rem';
+            container.style.maxHeight = logsExpanded ? '15rem' : '3rem';
         }
 
-        // 更新决策树可视化
+        // 更新决策树
         function updateDecisionTree() {
             const container = document.getElementById('decision-tree');
             if (!decisionTree || !decisionTree.root) {
-                container.innerHTML = '<div class="text-gray-500 text-sm italic text-center py-8">等待决策数据...</div>';
+                container.innerHTML = '<div class="text-gray-500 text-sm text-center py-8">等待决策数据...</div>';
                 return;
             }
 
-            container.innerHTML = '<div class="decision-tree">' + renderTreeNode(decisionTree.root) + '</div>';
+            container.innerHTML = renderTreeNode(decisionTree.root);
         }
 
         // 渲染树节点
@@ -686,43 +1201,28 @@
             if (!node) return '';
 
             const statusClass = node.status || 'pending';
-            const hasChildren = node.children && node.children.length > 0;
+            const indent = '  '.repeat(depth);
 
-            let html = `
-                <div class="tree-node ${statusClass}">
-                    <div class="tree-label">${node.label || node.phase}</div>
-            `;
+            let html = `${indent}<div class="mb-2">`;
+            html += `<div class="text-[var(--neon-cyan)]">${node.label || node.phase}</div>`;
 
-            // 添加元数据
             if (node.duration) {
-                html += `<div class="tree-meta">⏱ ${node.duration.toFixed(2)}s</div>`;
+                html += `<div class="text-gray-500 text-[10px]">⏱ ${node.duration.toFixed(2)}s</div>`;
             }
+
             if (node.agents) {
-                html += '<div class="tree-meta">';
+                html += '<div class="mt-1 flex flex-wrap gap-1">';
                 node.agents.forEach(agent => {
-                    const agentStatus = agent.status === 'completed' ? 'success' : 'running';
-                    html += `<span class="tree-agent ${agentStatus}">${agent.name}</span>`;
+                    const status = agent.status === 'completed' ? 'text-[var(--neon-green)]' : 'text-[var(--neon-amber)]';
+                    html += `<span class="text-[10px] ${status}">${agent.name}</span>`;
                 });
                 html += '</div>';
             }
 
-            // 添加内容
-            if (node.content) {
-                html += `<div class="tree-content">${node.content}</div>`;
-            }
-
-            // 添加最终决策
-            if (node.decision) {
-                const decisionClass = node.decision.toLowerCase().includes('buy') ? 'buy' :
-                                      node.decision.toLowerCase().includes('sell') ? 'sell' : 'hold';
-                html += `<div class="final-decision ${decisionClass}">🎯 ${node.decision}</div>`;
-            }
-
             html += '</div>';
 
-            // 递归渲染子节点
-            if (hasChildren) {
-                html += '<div class="tree-children">';
+            if (node.children && node.children.length > 0) {
+                html += '<div class="ml-4 border-l border-gray-700 pl-2">';
                 node.children.forEach(child => {
                     html += renderTreeNode(child, depth + 1);
                 });
@@ -731,26 +1231,6 @@
 
             return html;
         }
-
-        // 折叠/展开节点
-        function toggleNode(nodeId) {
-            const nodeEl = document.getElementById(`node-${nodeId}`);
-            const childrenEl = document.getElementById(`children-${nodeId}`);
-            if (nodeEl && childrenEl) {
-                childrenEl.style.display = childrenEl.style.display === 'none' ? 'block' : 'none';
-            }
-        }
-
-        // 初始化
-        document.addEventListener('DOMContentLoaded', () => {
-            initKlineChart();
-            connectWebSocket();
-        });
-
-        // 窗口大小变化时重新调整图表
-        window.addEventListener('resize', () => {
-            if (klineChart) klineChart.resize();
-        });
     </script>
 </body>
 </html>
