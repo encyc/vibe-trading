@@ -2,7 +2,73 @@
 
 欢迎使用 Vibe Trading，这是一个 AI 驱动的多Agent协作量化交易系统。本指南将帮助你在几分钟内启动并运行系统，使你能够利用多Agent协作、智能辩论和风控评估构建专业的量化交易策略。
 
-![系统架构图](https://via.placeholder.com/800x400/0a0a0f/00f0ff?text=Vibe+Trading+Architecture)
+## 系统架构
+
+```mermaid
+flowchart TB
+    subgraph Data["📊 数据源"]
+        Binance[Binance API<br/>K线/市场数据]
+    end
+
+    subgraph Threads["🔄 三线程架构"]
+        Macro[Macro Thread<br/>宏观数据分析<br/>每小时运行]
+        OnBar[On Bar Thread<br/>K线触发分析<br/>实时响应]
+        Event[Event Thread<br/>事件驱动<br/>紧急响应]
+    end
+
+    subgraph Phase1["📈 Phase 1: 分析师团队"]
+        Tech[技术分析师]
+        Fund[基本面分析师]
+        News[新闻分析师]
+        Sent[情绪分析师]
+    end
+
+    subgraph Phase2["🔬 Phase 2: 研究团队"]
+        Bull[Bull研究员<br/>看涨观点]
+        Bear[Bear研究员<br/>看跌观点]
+        RM[研究经理<br/>综合决策]
+    end
+
+    subgraph Phase3["⚖️ Phase 3: 风控团队"]
+        Agg[激进风控]
+        Neu[中立项控]
+        Cons[保守风控]
+    end
+
+    subgraph Phase4["🎯 Phase 4: 决策层"]
+        Trader[交易员<br/>执行计划]
+        PM[投资组合经理<br/>最终决策]
+    end
+
+    subgraph Output["📤 输出"]
+        Order[交易订单]
+        Web[Web监控界面]
+    end
+
+    Binance --> Macro
+    Binance --> OnBar
+    Binance --> Event
+
+    OnBar --> Phase1
+    Macro --> Phase1
+
+    Phase1 --> Phase2
+    Phase2 --> Phase3
+    Phase3 --> Phase4
+
+    Phase4 --> Order
+    Phase4 --> Web
+
+    Event -.->|优先级队列| Phase4
+
+    style Data fill:#e3f2fd
+    style Threads fill:#fff3e0
+    style Phase1 fill:#e8f5e9
+    style Phase2 fill:#fce4ec
+    style Phase3 fill:#fff9c4
+    style Phase4 fill:#e1bee7
+    style Output fill:#f3e5f5
+```
 
 ::: tip 提示
 Vibe Trading 支持两种运行模式：Paper Trading（模拟交易）和 Live Trading（实盘交易）。建议新手先使用 Paper Trading 模式熟悉系统。

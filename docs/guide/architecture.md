@@ -6,41 +6,80 @@
 
 Vibe Trading 采用模块化、异步的三层架构：
 
-```
-┌─────────────────────────────────────────────────┐
-│              Web Monitor (Vue.js)               │
-│         量子指挥塔实时监控界面                    │
-└─────────────────────────────────────────────────┘
-                      ↕ WebSocket
-┌─────────────────────────────────────────────────┐
-│            Trading Coordinator                   │
-│         交易协调器（核心决策引擎）                │
-└─────────────────────────────────────────────────┘
-                      ↕
-┌─────────────────────────────────────────────────┐
-│           Multi-Thread Architecture              │
-│     ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│     │  Macro   │  │  OnBar   │  │  Event   │   │
-│     │  Thread  │  │  Thread  │  │  Thread  │   │
-│     └──────────┘  └──────────┘  └──────────┘   │
-└─────────────────────────────────────────────────┘
-                      ↕
-┌─────────────────────────────────────────────────┐
-│               Agent Ecosystem                   │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐      │
-│  │ Analysts │  │Researchers│ │  Risk    │      │
-│  │   Team   │  │   Team   │  │   Team   │      │
-│  └──────────┘  └──────────┘  └──────────┘      │
-│  ┌──────────┐  ┌──────────┐                      │
-│  │  Trader  │  │Portfolio │                      │
-│  │   Agent  │  │  Manager │                      │
-│  └──────────┘  └──────────┘                      │
-└─────────────────────────────────────────────────┘
-                      ↕
-┌─────────────────────────────────────────────────┐
-│              Data Sources & Tools                │
-│  Binance API | Technical Indicators | Memory     │
-└─────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph Web["🖥️ Web 层"]
+        Monitor[Web Monitor<br/>Vue.js 量子指挥塔界面]
+    end
+
+    subgraph Coord["⚙️ 协调层"]
+        Coordinator[Trading Coordinator<br/>交易协调器<br/>核心决策引擎]
+    end
+
+    subgraph Threads["🔄 线程层"]
+        Macro[Macro Thread<br/>宏观线程<br/>每小时运行]
+        OnBar[OnBar Thread<br/>K线线程<br/>实时触发]
+        Event[Event Thread<br/>事件线程<br/>紧急响应]
+    end
+
+    subgraph Agents["🤖 Agent 层"]
+        subgraph Analysts["📊 分析师团队"]
+            Tech[技术分析师]
+            Fund[基本面分析师]
+            News[新闻分析师]
+            Sent[情绪分析师]
+        end
+
+        subgraph Researchers["🔬 研究员团队"]
+            Bull[Bull研究员]
+            Bear[Bear研究员]
+            RM[研究经理]
+        end
+
+        subgraph Risk["⚖️ 风控团队"]
+            Agg[激进风控]
+            Neu[中立项控]
+            Cons[保守风控]
+        end
+
+        subgraph Decision["🎯 决策层"]
+            Trader[交易员]
+            PM[投资组合经理]
+        end
+    end
+
+    subgraph Data["📈 数据层"]
+        Binance[Binance API]
+        Memory[记忆系统<br/>BM25]
+        Tools[技术指标库<br/>20+ 指标]
+    end
+
+    Monitor <--WebSocket--> Coordinator
+    Coordinator <--协调--> Macro
+    Coordinator <--协调--> OnBar
+    Coordinator <--协调--> Event
+
+    Macro --> Analysts
+    OnBar --> Analysts
+    Event -.->|优先级| Decision
+
+    Analysts --> Researchers
+    Researchers --> Risk
+    Risk --> Decision
+
+    Decision --> Trader
+    Decision --> PM
+
+    Binance --> Macro
+    Binance --> OnBar
+    Memory --> Researchers
+    Tools --> Tech
+
+    style Web fill:#e3f2fd,stroke:#2196f3
+    style Coord fill:#fff3e0,stroke:#ff9800
+    style Threads fill:#f3e5f5,stroke:#9c27b0
+    style Agents fill:#e8f5e9,stroke:#4caf50
+    style Data fill:#fce4ec,stroke:#e91e63
 ```
 
 ## 核心组件
@@ -217,34 +256,65 @@ class TradingCoordinator:
 
 ## 数据流
 
-```
-K线数据 → OnBar Thread
-    ↓
-Trading Coordinator
-    ↓
-Phase 1: Analysts (并行)
-    ├─ TechnicalAnalyst → 技术分析
-    ├─ FundamentalAnalyst → 基本面分析
-    ├─ NewsAnalyst → 新闻分析
-    └─ SentimentAnalyst → 情绪分析
-    ↓
-Phase 2: Researchers (辩论)
-    ├─ BullResearcher → 看涨论点
-    ├─ BearResearcher → 看跌论点
-    └─ ResearchManager → 综合建议
-    ↓
-Phase 3: Risk Team (并行)
-    ├─ AggressiveRisk → 激进评估
-    ├─ NeutralRisk → 中立评估
-    └─ ConservativeRisk → 保守评估
-    ↓
-Phase 4: Decision Layer
-    ├─ Trader → 执行计划
-    └─ PortfolioManager → 最终决策
-    ↓
-执行交易 / 记录决策
-    ↓
-Memory System (学习优化)
+```mermaid
+sequenceDiagram
+    participant Binance as Binance API
+    participant OnBar as OnBar Thread
+    participant Coord as Trading Coordinator
+    participant P1 as Phase 1<br/>分析师团队
+    participant P2 as Phase 2<br/>研究员团队
+    participant P3 as Phase 3<br/>风控团队
+    participant P4 as Phase 4<br/>决策层
+    participant Exec as 执行层
+    participant Mem as 记忆系统
+
+    Binance->>OnBar: 新K线数据
+    OnBar->>Coord: 触发分析请求
+
+    rect rgb(200, 230, 201)
+        Note over Coord,P1: Phase 1 - 并行分析
+        Coord->>P1: 启动分析师团队
+        par 并行执行
+            P1->>P1: 技术分析
+            P1->>P1: 基本面分析
+            P1->>P1: 新闻分析
+            P1->>P1: 情绪分析
+        end
+        P1-->>Coord: 分析结果
+    end
+
+    rect rgb(255, 243, 224)
+        Note over Coord,P2: Phase 2 - 智能辩论
+        Coord->>P2: 启动研究员辩论
+        P2->>P2: Bull研究员论点
+        P2->>P2: Bear研究员论点
+        P2->>P2: 多轮辩论
+        P2->>P2: ResearchManager裁决
+        P2-->>Coord: 投资建议
+    end
+
+    rect rgb(227, 242, 253)
+        Note over Coord,P3: Phase 3 - 风险评估
+        Coord->>P3: 启动风控评估
+        par 三视角评估
+            P3->>P3: 激进风控
+            P3->>P3: 中立项控
+            P3->>P3: 保守风控
+        end
+        P3-->>Coord: 风险评估
+    end
+
+    rect rgb(243, 229, 245)
+        Note over Coord,P4: Phase 4 - 最终决策
+        Coord->>P4: 生成执行计划
+        P4->>P4: 交易员制定计划
+        P4->>P4: 投资经理审批
+        P4-->>Coord: 最终决策
+    end
+
+    Coord->>Exec: 执行交易/记录决策
+    Coord->>Mem: 存储决策经验
+    Mem-->>Coord: 历史经验检索
 ```
 
 ## 性能优化

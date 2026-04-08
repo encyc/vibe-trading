@@ -4,59 +4,76 @@
 
 ## 4阶段协作流程
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     K线数据到达                              │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│              Phase 1: 分析师团队（并行）                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │Technical │  │Fundamental│ │  News    │  │Sentiment │   │
-│  │ Analyst  │  │ Analyst  │  │ Analyst  │  │ Analyst  │   │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
-│     ↓             ↓             ↓             ↓           │
-│  技术分析      基本面分析     新闻分析      情绪分析        │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│             Phase 2: 研究员团队（辩论）                       │
-│  ┌──────────┐                    ┌──────────┐               │
-│  │   Bull   │ ─── 辩论轮次 1 ──> │ Research │               │
-│  │Researcher│                    │ Manager  │               │
-│  └──────────┘                    └──────────┘               │
-│     ↑        ← 辩论轮次 2 ──        ↓                       │
-│  ┌──────────┐                    ┌──────────┐               │
-│  │   Bear   │ ─── 辩论轮次 3 ──> │ Research │               │
-│  │Researcher│                    │ Manager  │               │
-│  └──────────┘                    └──────────┘               │
-│                                      ↓                       │
-│                             投资建议（方向+置信度）           │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│              Phase 3: 风控团队（并行）                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
-│  │Aggressive│  │ Neutral  │  │Conservative│                │
-│  │   Risk   │  │   Risk   │  │   Risk    │                 │
-│  └──────────┘  └──────────┘  └──────────┘                 │
-│     ↓             ↓             ↓                         │
-│  激进评估      中立评估      保守评估                        │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│               Phase 4: 决策层（顺序）                        │
-│  ┌──────────┐                    ┌──────────┐               │
-│  │  Trader  │ ─── 交易计划 ────> │Portfolio │               │
-│  │  Agent   │                    │ Manager  │               │
-│  └──────────┘                    └──────────┘               │
-│                                      ↓                       │
-│                              最终决策（执行/拒绝）            │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                  执行交易 / 记录决策                          │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Start([📊 K线数据到达])
+
+    subgraph P1["📈 Phase 1: 分析师团队 - 并行执行"]
+        Tech[技术分析师<br/>Technical Analyst]
+        Fund[基本面分析师<br/>Fundamental Analyst]
+        News[新闻分析师<br/>News Analyst]
+        Sent[情绪分析师<br/>Sentiment Analyst]
+    end
+
+    subgraph P2["🔬 Phase 2: 研究员团队 - 多轮辩论"]
+        Bull[Bull研究员<br/>看涨观点]
+        Bear[Bear研究员<br/>看跌观点]
+        RM[ResearchManager<br/>综合裁决]
+    end
+
+    subgraph P3["⚖️ Phase 3: 风控团队 - 并行评估"]
+        Agg[激进风控<br/>Aggressive Risk]
+        Neu[中立项控<br/>Neutral Risk]
+        Cons[保守风控<br/>Conservative Risk]
+    end
+
+    subgraph P4["🎯 Phase 4: 决策层 - 顺序执行"]
+        Trader[交易员<br/>Trader Agent]
+        PM[投资组合经理<br/>Portfolio Manager]
+    end
+
+    Decision([📋 最终决策<br/>执行/拒绝])
+    Memory([💾 记忆系统<br/>学习优化])
+
+    Start --> P1
+
+    P1 --> Tech
+    P1 --> Fund
+    P1 --> News
+    P1 --> Sent
+
+    Tech --> P2
+    Fund --> P2
+    News --> P2
+    Sent --> P2
+
+    Bull -.->|辩论轮次1| RM
+    RM -.->|反馈| Bear
+    Bear -.->|辩论轮次2| RM
+    RM -.->|反馈| Bull
+    Bull -.->|辩论轮次3| RM
+
+    RM --> P3
+
+    P3 --> Agg
+    P3 --> Neu
+    P3 --> Cons
+
+    Agg --> P4
+    Neu --> P4
+    Cons --> P4
+
+    Trader --> PM
+    PM --> Decision
+    Decision --> Memory
+
+    style Start fill:#e3f2fd,stroke:#2196f3
+    style P1 fill:#e8f5e9,stroke:#4caf50
+    style P2 fill:#fce4ec,stroke:#e91e63
+    style P3 fill:#fff9c4,stroke:#fbc02d
+    style P4 fill:#e1bee7,stroke:#9c27b0
+    style Decision fill:#c8e6c9,stroke:#4caf50
+    style Memory fill:#b2dfdb,stroke:#009688
 ```
 
 ## 详细流程说明
