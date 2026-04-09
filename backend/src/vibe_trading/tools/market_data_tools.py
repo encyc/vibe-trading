@@ -2,12 +2,16 @@
 市场数据工具
 
 为 Agent 提供获取市场数据的工具函数。
+
+支持两种数据获取方式：
+1. Provider（新）：标准化的交易所接口，支持多交易所
+2. BinanceClient（旧）：直接使用 Binance 客户端，作为回退选项
 """
 import logging
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
-from vibe_trading.data_sources.binance_client import BinanceClient, KlineInterval
+from vibe_trading.data_sources.binance_client import BinanceClient, KlineInterval, Kline
 from vibe_trading.data_sources.kline_storage import KlineStorage, KlineQuery
 from vibe_trading.data_sources.technical_indicators import TechnicalIndicators
 
@@ -15,11 +19,72 @@ from vibe_trading.data_sources.technical_indicators import TechnicalIndicators
 from vibe_trading.data_sources.cache import cached, get_global_cache
 from vibe_trading.data_sources.rate_limiter import get_multi_endpoint_limiter
 
+# ===== 新增：Provider 支持 =====
+# 这些导入提供标准化的交易所接口
+try:
+    from vibe_trading.data_sources.providers.factory import ProviderFactory
+    from vibe_trading.data_sources.providers.models import StandardKline
+    PROVIDER_AVAILABLE = True
+except ImportError:
+    # 如果 Provider 模块不可用，回退到原有方式
+    PROVIDER_AVAILABLE = False
+    ProviderFactory = None
+
 logger = logging.getLogger(__name__)
 
 # 获取全局实例
 _cache = get_global_cache()
 _rate_limiter = get_multi_endpoint_limiter()
+
+# ===== 新增：全局Provider实例（延迟加载）=====
+_binance_provider = None
+
+
+async def get_binance_provider():
+    """获取Binance Provider实例（延迟加载）
+
+    Returns:
+        BinanceProvider 实例，如果不可用则返回 None
+    """
+    global _binance_provider
+    if not PROVIDER_AVAILABLE:
+        return None
+
+    if _binance_provider is None:
+        try:
+            _binance_provider = await ProviderFactory.get_provider("binance")
+        except Exception as e:
+            logger.warning(f"Failed to create Binance provider: {e}")
+            return None
+
+    return _binance_provider
+
+
+def convert_standard_to_legacy(kline: 'StandardKline') -> Kline:
+    """转换StandardKline为传统Kline格式
+
+    Args:
+        kline: 标准化K线对象
+
+    Returns:
+        传统Kline对象
+    """
+    return Kline(
+        symbol=kline.symbol,
+        interval=kline.interval,
+        open_time=kline.open_time,
+        open=kline.open,
+        high=kline.high,
+        low=kline.low,
+        close=kline.close,
+        volume=kline.volume,
+        close_time=kline.close_time,
+        quote_volume=kline.quote_volume,
+        trades=kline.trades,
+        taker_buy_base=kline.taker_buy_base,
+        taker_buy_quote=kline.taker_buy_quote,
+        is_final=kline.is_final,
+    )
 
 
 # =============================================================================
@@ -56,6 +121,8 @@ async def get_kline_data(
     """
     获取 K线数据
 
+    优先级：存储 > Provider > 原有Client
+
     Args:
         symbol: 交易对符号
         interval: K线间隔
@@ -69,17 +136,20 @@ async def get_kline_data(
         query = KlineQuery(symbol=symbol, interval=interval, limit=limit)
         klines = await storage.query_klines(query)
     else:
-        # 从 API 获取
-        client = BinanceClient()
-        try:
-            data = await client.rest.get_klines(
-                symbol=symbol,
-                interval=KlineInterval(interval),
-                limit=limit,
-            )
-            klines = [Kline.from_rest(k) for k in data]
-        finally:
-            await client.close()
+        # ===== 新增：尝试使用 Provider =====
+        provider = await get_binance_provider()
+        if provider:
+            try:
+                std_klines = await provider.get_klines(symbol, interval, limit)
+                # 转换为旧格式
+                klines = [convert_standard_to_legacy(k) for k in std_klines]
+            except Exception as e:
+                logger.warning(f"Provider failed, falling back to legacy client: {e}")
+                # 回退到原有方式
+                klines = await _get_klines_legacy(symbol, interval, limit)
+        else:
+            # Provider 不可用，使用原有方式
+            klines = await _get_klines_legacy(symbol, interval, limit)
 
     if not klines:
         return {"error": "No kline data available"}
@@ -113,13 +183,43 @@ async def get_kline_data(
     return result
 
 
+async def _get_klines_legacy(
+    symbol: str,
+    interval: str,
+    limit: int,
+) -> List[Kline]:
+    """使用原有 BinanceClient 获取K线数据（回退方式）
+
+    Args:
+        symbol: 交易对符号
+        interval: K线间隔
+        limit: 获取数量
+
+    Returns:
+        K线数据列表
+    """
+    client = BinanceClient()
+    try:
+        data = await client.rest.get_klines(
+            symbol=symbol,
+            interval=KlineInterval(interval),
+            limit=limit,
+        )
+        return [Kline.from_rest(k) for k in data]
+    finally:
+        await client.close()
+
+
 @cached(ttl=5, key_prefix="price", cache_instance=_cache)
 async def get_current_price(symbol: str, storage: Optional[KlineStorage] = None) -> dict:
     """
     获取当前价格
 
+    优先级：存储 > Provider > 原有Client
+
     Args:
         symbol: 交易对符号
+        storage: 可选的存储实例
 
     Returns:
         当前价格信息
@@ -134,10 +234,23 @@ async def get_current_price(symbol: str, storage: Optional[KlineStorage] = None)
                 "volume": kline.volume,
             }
 
+    # ===== 新增：尝试使用 Provider =====
+    provider = await get_binance_provider()
+    if provider:
+        try:
+            price = await provider.get_current_price(symbol)
+            return {
+                "symbol": symbol,
+                "price": price,
+                "timestamp": int(__import__("time").time() * 1000),
+            }
+        except Exception as e:
+            logger.warning(f"Provider failed for current price, falling back: {e}")
+
     # ========== 改进工具: API限流 ==========
     await _rate_limiter.acquire("binance_rest", tokens=1)
 
-    # 从 API 获取
+    # 从 API 获取（回退方式）
     client = BinanceClient()
     try:
         ticker = await client.rest._request(

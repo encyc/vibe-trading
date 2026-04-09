@@ -739,8 +739,11 @@
         // 初始化
         document.addEventListener('DOMContentLoaded', () => {
             initGridStack();
-            initKlineChart();
-            connectWebSocket();
+            // 延迟初始化图表，确保 GridStack 已创建元素
+            setTimeout(() => {
+                initKlineChart();
+                connectWebSocket();
+            }, 100);
             updateTimestamp();
             setInterval(updateTimestamp, 1000);
         });
@@ -846,7 +849,12 @@
 
         // 初始化 K线图表
         function initKlineChart() {
-            klineChart = echarts.init(document.getElementById('kline-chart'));
+            const chartDom = document.getElementById('kline-chart');
+            if (!chartDom) {
+                console.error('kline-chart element not found');
+                return;
+            }
+            klineChart = echarts.init(chartDom);
             klineChart.setOption({
                 grid: {
                     left: 10,
