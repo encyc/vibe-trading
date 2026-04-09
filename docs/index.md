@@ -7,8 +7,8 @@ hero:
   text: "AI驱动的多Agent协作量化交易系统"
   tagline: 基于12个专业Agent的4阶段协作架构，结合大语言模型和智能风控，实现加密货币交易的智能化决策
   image:
-    src: /favicon.ico
-    alt: Vibe Trading
+    src: /logo.png
+    alt: Vibe Trading Logo
   actions:
     - theme: brand
       text: 快速开始

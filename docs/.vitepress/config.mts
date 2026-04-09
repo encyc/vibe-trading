@@ -20,7 +20,7 @@ export default withMermaid(defineConfig({
   },
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
-    logo: "/favicon.ico",
+    logo: "/logo.png",
     nav: [
       { text: '快速开始', link: '/guide/quick-start' },
       { text: '系统架构', link: '/guide/architecture' },
