@@ -233,6 +233,146 @@ class BinanceConfig:
     rate_limit_window: int = 60  # 秒
 ```
 
+## 多交易所配置
+
+### 概述
+
+Vibe Trading 支持通过标准化的 Provider 接口接入多个交易所，实现数据源的多样化和备份。
+
+### 支持的交易所
+
+当前支持的交易所：
+
+| 交易所 | 状态 | 说明 |
+|--------|------|------|
+| Binance | ✅ 完全支持 | 现货、合约交易 |
+
+计划支持的交易所：
+
+| 交易所 | 状态 | 说明 |
+|--------|------|------|
+| OKX | 🚧 开发中 | 衍生品交易 |
+| Bybit | 🚧 计划中 | 衍生品交易 |
+
+### 环境变量配置
+
+#### Binance 配置
+
+```env
+# 主网配置
+BINANCE_API_KEY=your_binance_api_key
+BINANCE_API_SECRET=your_binance_api_secret
+
+# 测试网配置（推荐用于测试）
+BINANCE_TESTNET_API_KEY=your_testnet_api_key
+BINANCE_TESTNET_API_SECRET=your_testnet_api_secret
+```
+
+#### 多交易所配置（未来）
+
+```env
+# OKX 配置（未来）
+OKX_API_KEY=your_okx_api_key
+OKX_API_SECRET=your_okx_api_secret
+OKX_SANDBOX=true  # 是否使用沙盒
+
+# Bybit 配置（未来）
+BYBIT_API_KEY=your_bybit_api_key
+BYBIT_API_SECRET=your_bybit_api_secret
+```
+
+### Provider 配置
+
+#### 使用 Provider 工厂
+
+```python
+from vibe_trading.data_sources.providers.factory import ProviderFactory
+
+# 创建 Binance Provider
+binance_provider = await ProviderFactory.get_provider("binance")
+
+# 获取市场数据
+price = await binance_provider.get_current_price("BTCUSDT")
+klines = await binance_provider.get_klines("BTCUSDT", "5m", 100)
+
+# 清理资源
+await ProviderFactory.close_all()
+```
+
+#### 直接创建 Provider
+
+```python
+from vibe_trading.data_sources.providers.factory import ProviderFactory
+from vibe_trading.data_sources.exchange_config import BinanceExchangeConfig
+
+# 创建自定义配置
+config = BinanceExchangeConfig(
+    exchange_type="binance",
+    environment="testnet",  # 或 "mainnet"
+    api_key="your_api_key",
+    api_secret="your_api_secret",
+    enable_websocket=True,
+    enable_rest=True,
+)
+
+# 创建 Provider
+provider = await ProviderFactory.create_provider("binance", config)
+```
+
+### 数据源优先级
+
+系统支持多个数据源，并按照优先级自动选择：
+
+1. **KlineStorage** - 本地数据库（最快）
+2. **Provider** - 标准化交易所接口
+3. **原始 Client** - 直接 API 调用（回退）
+
+### 配置验证
+
+#### 检查可用交易所
+
+```python
+from vibe_trading.data_sources.providers.registry import ProviderRegistry
+
+# 列出所有注册的交易所
+exchanges = ProviderRegistry.list_providers()
+print(f"可用交易所: {exchanges}")
+# 输出: ['binance']
+```
+
+#### 健康检查
+
+```python
+# 检查交易所连接状态
+provider = await ProviderFactory.get_provider("binance")
+is_healthy = await provider.health_check()
+print(f"连接状态: {is_healthy}")
+print(f"详细信息: {provider.status}")
+```
+
+### 切换交易所
+
+```python
+# 从 Binance 切换到 OKX（未来功能）
+binance_provider = await ProviderFactory.get_provider("binance")
+okx_provider = await ProviderFactory.get_provider("okx")
+
+# 从多个交易所获取数据进行对比
+binance_price = await binance_provider.get_current_price("BTCUSDT")
+okx_price = await okx_provider.get_current_price("BTC-USDT")
+
+print(f"Binance: ${binance_price}")
+print(f"OKX: ${okx_price}")
+```
+
+### 最佳实践
+
+1. **使用测试网**：开发和测试时使用测试网
+2. **API 密钥安全**：不要提交 API 密钥到版本控制
+3. **连接池管理**：合理设置连接池大小
+4. **错误处理**：实现重试和降级机制
+5. **监控告警**：监控交易所连接状态和数据质量
+
 ## 日志配置
 
 ### 日志配置

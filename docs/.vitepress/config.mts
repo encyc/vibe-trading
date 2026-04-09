@@ -43,6 +43,7 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'Web监控', link: '/guide/monitoring' },
           { text: '回测系统', link: '/guide/backtest' },
+          { text: '数据提供者', link: '/guide/data-provider' },
           { text: '配置说明', link: '/guide/configuration' }
         ]
       },
