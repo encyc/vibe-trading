@@ -3,6 +3,7 @@
 
 包括看涨研究员、看跌研究员和研究经理（增强版）。
 """
+import asyncio
 from typing import Dict, List, Optional
 
 from pi_agent_core import Agent, AgentOptions
@@ -43,6 +44,9 @@ class ResearcherAgent:
         # 添加辩论分析工具
         self._argument_extractor = ArgumentExtractor()
         self._my_arguments: List[Argument] = []
+
+        # 添加锁以防止并发调用
+        self._lock = asyncio.Lock()
 
     async def initialize(self, tool_context: ToolContext, enable_streaming: bool = True) -> None:
         """初始化 Agent"""
@@ -86,32 +90,34 @@ class ResearcherAgent:
         if not self._agent:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
 
-        # 构建提示
-        prompt = self._build_debate_prompt(context, debate_history, opponent_argument)
+        # 使用锁防止并发调用
+        async with self._lock:
+            # 构建提示
+            prompt = self._build_debate_prompt(context, debate_history, opponent_argument)
 
-        await self._agent.prompt(prompt)
+            await self._agent.prompt(prompt)
 
-        # 获取响应
-        messages = self._agent.state.messages
-        if messages:
-            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-            if last_assistant:
-                content = last_assistant[-1].content
-                if isinstance(content, list):
-                    response = "".join(getattr(c, "text", str(c)) for c in content)
-                else:
-                    response = str(content)
+            # 获取响应
+            messages = self._agent.state.messages
+            if messages:
+                last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
+                if last_assistant:
+                    content = last_assistant[-1].content
+                    if isinstance(content, list):
+                        response = "".join(getattr(c, "text", str(c)) for c in content)
+                    else:
+                        response = str(content)
 
-                # 提取论点
-                if extract_arguments:
-                    self._my_arguments = self._argument_extractor.extract_arguments(
-                        response,
-                        "bull" if "bull" in self.config.role.value.lower() else "bear"
-                    )
+                    # 提取论点
+                    if extract_arguments:
+                        self._my_arguments = self._argument_extractor.extract_arguments(
+                            response,
+                            "bull" if "bull" in self.config.role.value.lower() else "bear"
+                        )
 
-                return response
+                    return response
 
-        return "Response failed - no response from agent"
+            return "Response failed - no response from agent"
 
     def _build_debate_prompt(
         self,
@@ -220,6 +226,9 @@ class ResearchManagerAgent:
         self._debate_evaluator = DebateEvaluator()
         self._recommendation_engine = RecommendationEngine()
 
+        # 添加锁以防止并发调用
+        self._lock = asyncio.Lock()
+
     async def initialize(self, tool_context: ToolContext) -> None:
         """初始化 Agent"""
         self._tool_context = tool_context
@@ -259,56 +268,58 @@ class ResearchManagerAgent:
         if not self._agent:
             raise RuntimeError("Agent not initialized. Call initialize() first.")
 
-        # 1. 评估辩论
-        bull_messages = bull_history.split("\n") if bull_history else []
-        bear_messages = bear_history.split("\n") if bear_history else []
+        # 使用锁防止并发调用
+        async with self._lock:
+            # 1. 评估辩论
+            bull_messages = bull_history.split("\n") if bull_history else []
+            bear_messages = bear_history.split("\n") if bear_history else []
 
-        scorecard = self._debate_evaluator.evaluate_debate(
-            bull_messages,
-            bear_messages,
-            market_data
-        )
+            scorecard = self._debate_evaluator.evaluate_debate(
+                bull_messages,
+                bear_messages,
+                market_data
+            )
 
-        # 2. 生成投资建议
-        recommendation = self._recommendation_engine.generate_recommendation(
-            scorecard,
-            analyst_reports,
-            market_data
-        )
+            # 2. 生成投资建议
+            recommendation = self._recommendation_engine.generate_recommendation(
+                scorecard,
+                analyst_reports,
+                market_data
+            )
 
-        # 3. 构建LLM提示获取详细决策
-        prompt = self._build_decision_prompt(
-            context,
-            scorecard,
-            recommendation,
-            analyst_reports,
-            bull_agent,
-            bear_agent
-        )
+            # 3. 构建LLM提示获取详细决策
+            prompt = self._build_decision_prompt(
+                context,
+                scorecard,
+                recommendation,
+                analyst_reports,
+                bull_agent,
+                bear_agent
+            )
 
-        await self._agent.prompt(prompt)
+            await self._agent.prompt(prompt)
 
-        # 获取决策文本
-        decision_text = ""
-        messages = self._agent.state.messages
-        if messages:
-            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-            if last_assistant:
-                content = last_assistant[-1].content
-                if isinstance(content, list):
-                    decision_text = "".join(getattr(c, "text", str(c)) for c in content)
-                else:
-                    decision_text = str(content)
+            # 获取决策文本
+            decision_text = ""
+            messages = self._agent.state.messages
+            if messages:
+                last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
+                if last_assistant:
+                    content = last_assistant[-1].content
+                    if isinstance(content, list):
+                        decision_text = "".join(getattr(c, "text", str(c)) for c in content)
+                    else:
+                        decision_text = str(content)
 
-        # 4. 生成分析摘要
-        analysis_summary = self._generate_analysis_summary(scorecard, recommendation)
+            # 4. 生成分析摘要
+            analysis_summary = self._generate_analysis_summary(scorecard, recommendation)
 
-        return {
-            "recommendation": recommendation,
-            "scorecard": scorecard,
-            "decision_text": decision_text,
-            "analysis_summary": analysis_summary,
-        }
+            return {
+                "recommendation": recommendation,
+                "scorecard": scorecard,
+                "decision_text": decision_text,
+                "analysis_summary": analysis_summary,
+            }
 
     def _build_decision_prompt(
         self,

@@ -7,23 +7,19 @@ Vibe Trading - 主入口
 3. Event-Driven Thread - 监控紧急事件
 """
 import asyncio
-import logging
-import signal
-import sys
 from enum import Enum
-from typing import List, Optional
+from typing import List
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from pi_logger import get_logger, configure, info, success, warning, separator
+from pi_logger import get_logger, configure, info, success, warning, error, separator
 
 from vibe_trading.config.settings import get_settings
 from vibe_trading.main.multi_thread_main import MultiThreadedTradingSystem
 from vibe_trading.data_sources.kline_storage import KlineStorage
-from vibe_trading.memory.memory import PersistentMemory
 from vibe_trading.coordinator.trading_coordinator import TradingCoordinator
 
 # Prime Agent导入
@@ -41,6 +37,27 @@ class TradingMode(str, Enum):
     LIVE = "live"    # 实盘交易
 
 
+async def run_web_server(port: int = 8000) -> None:
+    """
+    在后台运行 Web 服务器
+
+    Args:
+        port: Web 服务器端口
+    """
+    import uvicorn
+    from vibe_trading.web.server import app
+
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+
+    try:
+        await server.serve()
+    except asyncio.CancelledError:
+        info("Web 服务器已停止", tag="WEB")
+    except Exception as e:
+        logger.error(f"Web 服务器错误: {e}", exc_info=True)
+
+
 @app.command()
 def start(
     symbols: List[str] = typer.Argument(..., help="交易对符号，如 BTCUSDT ETHUSDT"),
@@ -49,6 +66,8 @@ def start(
     execute: bool = typer.Option(False, help="--execute: 实盘模式下真正执行订单"),
     log_level: str = typer.Option("INFO", help="日志级别: DEBUG, INFO, WARNING, ERROR"),
     save_logs: bool = typer.Option(True, help="--save-logs/--no-save-logs: 是否保存日志到文件 (默认保存到 logs/ 目录)"),
+    web: bool = typer.Option(False, help="--web: 启动 Web 监控界面 (默认端口 8000)"),
+    web_port: int = typer.Option(8000, help="--web-port: Web 监控界面端口"),
 ):
     """
     启动三线程交易系统
@@ -60,16 +79,19 @@ def start(
 
     示例:
         # 纸面交易
-        python -m vibe_trading.main start BTCUSDT
+        vibe-trade start BTCUSDT
 
         # 实盘交易 (仅打印订单)
-        python -m vibe_trading.main start BTCUSDT --mode live
+        vibe-trade start BTCUSDT --mode live
 
         # 实盘交易 (真正执行)
-        python -m vibe_trading.main start BTCUSDT --mode live --execute
+        vibe-trade start BTCUSDT --mode live --execute
+
+        # 启动 Web 监控界面
+        vibe-trade start BTCUSDT --web
 
         # 多交易对 (使用第一个作为主symbol)
-        python -m vibe_trading.main start BTCUSDT ETHUSDT SOLUSDT
+        vibe-trade start BTCUSDT ETHUSDT SOLUSDT
     """
     # 配置日志
     configure(log_level=log_level, json_output=False, enable_file_logging=True)
@@ -95,12 +117,15 @@ def start(
     mode_color = "green" if trading_mode == TradingMode.PAPER else "red"
     mode_text = "📝 纸面交易模式" if trading_mode == TradingMode.PAPER else "⚠️  实盘交易模式"
 
+    web_status = f"✅ 启用 (http://localhost:{web_port})" if web else "❌ 未启用"
+
     console.print()
     console.print(Panel(
         f"[bold {mode_color}]{mode_text}[/bold {mode_color}]\n\n"
         f"交易对: {', '.join(symbols)}\n"
         f"K线周期: {interval}\n"
         f"执行交易: {'是' if execute else '否 (仅打印)'}\n"
+        f"Web 监控: {web_status}\n"
         f"线程架构: Macro + OnBar + Event",
         title="[bold cyan]🤖 Vibe Trading - 三线程架构[/bold cyan]",
         border_style="cyan",
@@ -124,6 +149,8 @@ def start(
         mode=trading_mode,
         execute_trades=execute,
         save_logs=save_logs,
+        enable_web=web,
+        web_port=web_port,
     ))
 
 
@@ -133,6 +160,8 @@ async def run_multi_thread_system(
     mode: TradingMode,
     execute_trades: bool,
     save_logs: bool = True,
+    enable_web: bool = False,
+    web_port: int = 8000,
 ) -> None:
     """
     运行三线程交易系统
@@ -142,6 +171,9 @@ async def run_multi_thread_system(
         interval: K线间隔
         mode: 交易模式
         execute_trades: 是否真正执行交易
+        save_logs: 是否保存日志
+        enable_web: 是否启动 Web 监控界面
+        web_port: Web 服务器端口
     """
     info(f"启动三线程交易系统: {symbol} ({interval})", tag="START")
     separator("=", 60)
@@ -166,6 +198,9 @@ async def run_multi_thread_system(
         configure(log_level="INFO", json_output=False)
         info("文件日志已禁用", tag="LOG")
 
+    # Web 服务器任务
+    web_server_task = None
+
     try:
         # 创建多线程系统
         system = MultiThreadedTradingSystem(
@@ -176,6 +211,11 @@ async def run_multi_thread_system(
         # 设置信号处理
         system.setup_signal_handlers()
 
+        # 启动 Web 服务器（如果启用）
+        if enable_web:
+            info(f"启动 Web 监控界面: http://localhost:{web_port}", tag="WEB")
+            web_server_task = asyncio.create_task(run_web_server(web_port))
+
         # 运行系统
         await system.run()
 
@@ -184,6 +224,15 @@ async def run_multi_thread_system(
     except Exception as e:
         logger.error(f"系统错误: {e}", exc_info=True)
     finally:
+        # 停止 Web 服务器
+        if web_server_task:
+            info("正在关闭 Web 服务器...", tag="WEB")
+            web_server_task.cancel()
+            try:
+                await web_server_task
+            except asyncio.CancelledError:
+                pass
+
         info("系统关闭完成")
 
 
@@ -212,7 +261,8 @@ def analyze(
 
         # 获取当前价格
         from vibe_trading.tools.market_data_tools import get_current_price
-        current_price = await get_current_price(symbol)
+        price_result = await get_current_price(symbol)
+        current_price = float(price_result.get("price", 0)) if price_result else 0.0
 
         # 执行分析
         decision = await coordinator.analyze_and_decide(
@@ -239,6 +289,8 @@ def prime(
     execute: bool = typer.Option(False, help="--execute: 实盘模式下真正执行订单"),
     log_level: str = typer.Option("INFO", help="日志级别: DEBUG, INFO, WARNING, ERROR"),
     save_logs: bool = typer.Option(True, help="--save-logs/--no-save-logs: 是否保存日志到文件"),
+    web: bool = typer.Option(False, help="--web: 启动 Web 监控界面 (默认端口 8000)"),
+    web_port: int = typer.Option(8000, help="--web-port: Web 监控界面端口"),
 ):
     """
     启动Prime Agent监控模式（基于pi_agent_core的新架构）
@@ -254,13 +306,16 @@ def prime(
 
     示例:
         # 纸面交易
-        python -m vibe_trading.cli prime BTCUSDT
+        vibe-trade prime BTCUSDT
 
         # 实盘交易 (仅打印订单)
-        python -m vibe_trading.cli prime BTCUSDT --mode live
+        vibe-trade prime BTCUSDT --mode live
 
         # 实盘交易 (真正执行)
-        python -m vibe_trading.cli prime BTCUSDT --mode live --execute
+        vibe-trade prime BTCUSDT --mode live --execute
+
+        # 启动 Web 监控界面
+        vibe-trade prime BTCUSDT --web
     """
     # 配置日志
     configure(log_level=log_level, json_output=False, enable_file_logging=save_logs)
@@ -286,12 +341,15 @@ def prime(
     mode_color = "green" if trading_mode == TradingMode.PAPER else "red"
     mode_text = "📝 纸面交易模式" if trading_mode == TradingMode.PAPER else "⚠️ 实盘交易模式"
 
+    web_status = f"✅ 启用 (http://localhost:{web_port})" if web else "❌ 未启用"
+
     console.print()
     console.print(Panel(
         f"[bold {mode_color}]{mode_text}[/bold {mode_color}]\n\n"
         f"交易对: {', '.join(symbols)}\n"
         f"K线周期: {interval}\n"
         f"执行交易: {'是' if execute else '否 (仅打印)'}\n"
+        f"Web 监控: {web_status}\n"
         f"架构: 三线程系统 + Prime Agent监控层",
         title="[bold magenta]🤖 Vibe Trading - Prime Agent监控模式[/bold magenta]",
         border_style="magenta",
@@ -308,6 +366,8 @@ def prime(
         mode=trading_mode,
         execute_trades=execute,
         save_logs=save_logs,
+        enable_web=web,
+        web_port=web_port,
     ))
 
 
@@ -317,6 +377,8 @@ async def run_prime_system(
     mode: TradingMode,
     execute_trades: bool,
     save_logs: bool = True,
+    enable_web: bool = False,
+    web_port: int = 8000,
 ) -> None:
     """
     运行Prime Agent系统
@@ -327,6 +389,8 @@ async def run_prime_system(
         mode: 交易模式
         execute_trades: 是否真正执行交易
         save_logs: 是否保存日志
+        enable_web: 是否启动 Web 监控界面
+        web_port: Web 服务器端口
     """
     # 配置文件日志
     log_file_path = None
@@ -347,6 +411,9 @@ async def run_prime_system(
     else:
         configure(log_level="INFO", json_output=False)
         info("文件日志已禁用", tag="LOG")
+
+    # Web 服务器任务
+    web_server_task = None
 
     try:
         # 创建Prime Agent配置
@@ -401,6 +468,11 @@ async def run_prime_system(
         # 创建Prime Agent
         prime_agent = PrimeAgent(config)
 
+        # 启动 Web 服务器（如果启用）
+        if enable_web:
+            info(f"启动 Web 监控界面: http://localhost:{web_port}", tag="WEB")
+            web_server_task = asyncio.create_task(run_web_server(web_port))
+
         # 启动Prime Agent
         await prime_agent.start()
 
@@ -409,6 +481,15 @@ async def run_prime_system(
     except Exception as e:
         logger.error(f"Prime Agent系统错误: {e}", exc_info=True)
     finally:
+        # 停止 Web 服务器
+        if web_server_task:
+            info("正在关闭 Web 服务器...", tag="WEB")
+            web_server_task.cancel()
+            try:
+                await web_server_task
+            except asyncio.CancelledError:
+                pass
+
         info("Prime Agent系统关闭完成")
 
 
