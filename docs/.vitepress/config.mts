@@ -51,8 +51,18 @@ export default withMermaid(defineConfig({
         text: '进阶功能',
         items: [
           { text: '记忆系统', link: '/guide/memory' },
+          { text: 'Context管理', link: '/guide/context-management' },
           { text: '自定义Agent', link: '/guide/custom-agent' },
           { text: 'API文档', link: '/guide/api' }
+        ]
+      },
+      {
+        text: '开发指南',
+        items: [
+          { text: 'pi_agent_core框架', link: '/pi_agent_core' },
+          { text: '参与贡献', link: '/develop/contributing' },
+          { text: '开发路线图', link: '/develop/roadmap' },
+          { text: '版本变更记录', link: '/develop/changelog' }
         ]
       },
       {
