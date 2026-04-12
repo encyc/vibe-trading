@@ -1,0 +1,265 @@
+# 回测配置示例
+#
+# 使用方法：
+# 1. 复制此文件并重命名（如：my_backtest.yaml）
+# 2. 根据需要修改配置项
+# 3. 在代码中加载：config = BacktestConfig.from_yaml("my_backtest.yaml")
+
+# =============================================================================
+# 基础配置
+# =============================================================================
+
+# 交易品种（必填）
+symbol: "BTCUSDT"
+
+# K线间隔（必填）
+# 支持: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
+interval: "1d"
+
+# 回测开始时间（必填）
+# 格式: YYYY-MM-DD HH:MM:SS
+start_time: "2026-01-01 00:00:00"
+
+# 回测结束时间（必填）
+end_time: "2026-01-31 23:59:59"
+
+# 初始资金（默认: 10000.0）
+initial_balance: 10000.0
+
+# =============================================================================
+# LLM配置
+# =============================================================================
+
+# LLM调用模式
+# - real: 真实LLM调用（最慢，但最准确）
+# - cached: 使用缓存（推荐，首次运行后会缓存结果）
+# - simulated: 模拟模式（最快，用于测试）
+llm_mode: "cached"
+
+# Prompt ID（可选，用于追踪特定Prompt版本的效果）
+# prompt_id: "prompt_v1_20250101"
+
+# Prompt版本（可选）
+# prompt_version: "1.0.0"
+
+# =============================================================================
+# 存储配置
+# =============================================================================
+
+# 是否保存交易记录到数据库
+save_trades: true
+
+# 是否保存Agent输出
+save_agent_outputs: true
+
+# 是否保存结果到数据库
+save_to_database: true
+
+# =============================================================================
+# 报告配置
+# =============================================================================
+
+# 报告格式（支持多种格式）
+# - text: 文本格式（输出到控制台）
+# - html: HTML格式（保存到文件）
+# - json: JSON格式（保存到文件）
+report_formats:
+  - "text"
+  - "html"
+  - "json"
+
+# =============================================================================
+# 执行配置
+# =============================================================================
+
+# 最大并发决策数（用于模拟模式）
+max_concurrent_decisions: 3
+
+# 是否启用进度条
+enable_progress_bar: true
+
+# 决策采样间隔（每N根K线决策一次，默认为1表示每根K线都决策）
+# 增加此值可以加速回测，但可能错过短期信号
+decision_interval: 1
+
+# 重要变化阈值（价格变化超过此百分比时会触发额外决策）
+# 格式: 0.02 表示 2%
+significant_change_threshold: 0.02
+
+# =============================================================================
+# 检查点配置
+# =============================================================================
+
+# 是否保存检查点
+# 启用后可以从中断点继续回测
+save_checkpoints: false
+
+# 检查点保存间隔（每N根K线保存一次）
+checkpoint_interval: 100
+
+# 检查点保存目录
+checkpoint_dir: "./checkpoints"
+
+# 从检查点恢复（可选，留空则不恢复）
+# resume_from_checkpoint: "./checkpoints/BTCUSDT_1d_kline100_20250101_120000.json"
+
+# =============================================================================
+# 数据源配置
+# =============================================================================
+
+# 数据源类型
+# - binance_api: 从Binance API加载
+# - local_storage: 从本地存储加载
+# - hybrid: 混合模式（优先本地，不足时从API补充）
+data_source: "hybrid"
+
+# 是否填充数据缺口
+fill_gaps: true
+
+# =============================================================================
+# Agent配置（可选）
+# =============================================================================
+
+# Agent团队配置
+# 可以禁用特定agent以提高性能
+agents:
+  technical_analyst:
+    enabled: true
+    model: "default"  # 使用默认模型，或指定特定模型
+
+  fundamental_analyst:
+    enabled: true
+    model: "default"
+
+  news_analyst:
+    enabled: false  # 禁用新闻分析师（如果没有新闻数据）
+    model: "default"
+
+  sentiment_analyst:
+    enabled: false  # 禁用情绪分析师（如果没有情绪数据）
+    model: "default"
+
+  bull_researcher:
+    enabled: true
+    model: "default"
+
+  bear_researcher:
+    enabled: true
+    model: "default"
+
+  research_manager:
+    enabled: true
+    model: "default"
+
+  aggressive_risk_assessor:
+    enabled: true
+    model: "default"
+
+  neutral_risk_assessor:
+    enabled: true
+    model: "default"
+
+  conservative_risk_assessor:
+    enabled: true
+    model: "default"
+
+  risk_manager:
+    enabled: true
+    model: "default"
+
+  trader:
+    enabled: true
+    model: "default"
+
+  portfolio_manager:
+    enabled: true
+    model: "default"
+
+# =============================================================================
+# 技术指标配置（可选）
+# =============================================================================
+
+# 技术指标参数
+indicators:
+  rsi:
+    period: 14
+
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+
+  bollinger:
+    period: 20
+    std_dev: 2
+
+  sma_20:
+    period: 20
+
+  sma_50:
+    period: 50
+
+  atr:
+    period: 14
+
+# =============================================================================
+# 风险管理配置（可选）
+# =============================================================================
+
+# 最大持仓价值（占账户余额的百分比）
+max_position_value_percent: 10.0
+
+# 最大同时持仓数量
+max_open_positions: 3
+
+# 止损百分比（负数表示亏损达到此百分比时平仓）
+stop_loss_percent: -5.0
+
+# 止盈百分比（正数表示盈利达到此百分比时平仓）
+take_profit_percent: 10.0
+
+# =============================================================================
+# 日志配置（可选）
+# =============================================================================
+
+# 日志级别
+# - DEBUG: 详细日志
+# - INFO: 一般信息
+# - WARNING: 警告信息
+# - ERROR: 错误信息
+log_level: "INFO"
+
+# 是否输出彩色日志
+colorize_logs: true
+
+# 日志文件路径（可选，留空则不输出到文件）
+# log_file: "./logs/backtest.log"
+
+# =============================================================================
+# 示例配置
+# =============================================================================
+
+# 快速测试模式（使用SIMULATED LLM模式）
+# quick_test:
+#   symbol: "BTCUSDT"
+#   interval: "1h"
+#   start_time: "2026-01-01 00:00:00"
+#   end_time: "2026-01-07 23:59:59"
+#   llm_mode: "simulated"
+#   save_checkpoints: false
+#   enable_progress_bar: true
+
+# 完整回测模式（使用CACHED LLM模式，启用检查点）
+# full_backtest:
+#   symbol: "BTCUSDT"
+#   interval: "1d"
+#   start_time: "2026-01-01 00:00:00"
+#   end_time: "2026-12-31 23:59:59"
+#   llm_mode: "cached"
+#   save_checkpoints: true
+#   checkpoint_interval: 500
+#   enable_progress_bar: true
+#   report_formats:
+#     - "text"
+#     - "html"
+#     - "json"

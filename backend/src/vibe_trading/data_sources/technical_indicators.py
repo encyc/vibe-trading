@@ -123,8 +123,82 @@ def calculate_obv(close: pd.Series, volume: pd.Series) -> pd.Series:
 class TechnicalIndicators:
     """技术指标计算器"""
 
+    # 默认指标配置及其lookback需求
+    DEFAULT_INDICATORS = {
+        "rsi": {"period": 14},
+        "macd": {"fast": 12, "slow": 26, "signal": 9},
+        "bollinger": {"period": 20, "std_dev": 2},
+        "sma_20": {"period": 20},
+        "sma_50": {"period": 50},
+        "ema_12": {"period": 12},
+        "ema_26": {"period": 26},
+        "atr": {"period": 14},
+        "stochastic": {"k_period": 14, "d_period": 3},
+    }
+
     def __init__(self):
         self.data: Optional[pd.DataFrame] = None
+
+    @classmethod
+    def get_required_lookback(
+        cls,
+        indicators: Optional[List[str]] = None,
+        safety_margin: float = 0.2
+    ) -> int:
+        """
+        获取计算指定指标所需的最小lookback周期数
+
+        这个方法用于确定回测时需要额外加载多少历史K线数据，
+        以确保所有指定指标在回测第一天就能正确计算。
+
+        Args:
+            indicators: 需要计算的指标列表（如["rsi", "macd", "bollinger"]）
+                       如果为None，则计算所有默认指标的lookback
+            safety_margin: 安全边际比例（默认20%），用于确保数据充足
+
+        Returns:
+            需要的历史K线周期数
+
+        Examples:
+            >>> # 计算MACD和RSI的lookback
+            >>> lookback = TechnicalIndicators.get_required_lookback(["macd", "rsi"])
+            >>> print(lookback)  # 42 (max(35, 14) * 1.2)
+
+            >>> # 计算所有默认指标的lookback
+            >>> lookback = TechnicalIndicators.get_required_lookback()
+            >>> print(lookback)  # 60 (max(50, 35, 14, ...) * 1.2)
+        """
+        if indicators is None:
+            # 使用所有默认指标
+            indicators = list(cls.DEFAULT_INDICATORS.keys())
+
+        max_lookback = 0
+        for indicator in indicators:
+            if indicator in cls.DEFAULT_INDICATORS:
+                params = cls.DEFAULT_INDICATORS[indicator]
+
+                # 计算单个指标的lookback
+                if indicator == "macd":
+                    # MACD: max(fast, slow) + signal
+                    fast = params.get("fast", 12)
+                    slow = params.get("slow", 26)
+                    signal = params.get("signal", 9)
+                    lookback = max(fast, slow) + signal
+                elif indicator == "stochastic":
+                    # Stochastic: max(k_period, d_period)
+                    k_period = params.get("k_period", 14)
+                    d_period = params.get("d_period", 3)
+                    lookback = max(k_period, d_period)
+                elif "period" in params:
+                    # 其他带period参数的指标
+                    lookback = params["period"]
+                else:
+                    lookback = 20  # 默认值
+
+                max_lookback = max(max_lookback, lookback)
+
+        # 添加安全边际
+        return int(max_lookback * (1 + safety_margin))
 
     def load_data(
         self,

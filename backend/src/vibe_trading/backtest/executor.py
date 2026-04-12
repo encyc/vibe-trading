@@ -17,6 +17,7 @@ from vibe_trading.backtest.models import (
     BacktestDecision,
     Trade,
 )
+from vibe_trading.backtest.llm_optimizer import LLMOptimizer
 from vibe_trading.coordinator.signal_processor import TradingSignal
 from vibe_trading.coordinator.trading_coordinator import TradingCoordinator
 from vibe_trading.coordinator.quality_tracker import get_quality_tracker
@@ -66,6 +67,7 @@ class BacktestExecutor:
         config: BacktestConfig,
         coordinator: TradingCoordinator,
         order_executor: Optional[OrderExecutor] = None,
+        llm_optimizer: Optional[LLMOptimizer] = None,
     ):
         """
         初始化执行器
@@ -74,12 +76,14 @@ class BacktestExecutor:
             config: 回测配置
             coordinator: 交易协调器
             order_executor: 订单执行器（如果为None则创建PaperOrderExecutor）
+            llm_optimizer: LLM优化器（可选，用于决策缓存和模拟）
         """
         self.config = config
         self.coordinator = coordinator
         self.order_executor = order_executor or PaperOrderExecutor(
             initial_balance=config.initial_balance
         )
+        self.llm_optimizer = llm_optimizer
         self.quality_tracker = get_quality_tracker()
 
         # 初始化执行状态
@@ -106,17 +110,32 @@ class BacktestExecutor:
             # 2. 获取当前持仓信息
             current_positions = self._get_current_positions_list()
 
-            # 3. 调用TradingCoordinator获取决策
+            # 3. 调用TradingCoordinator获取决策（使用LLMOptimizer优化）
             logger.debug(f"处理K线: {kline.symbol} @ {kline.close}")
 
-            trading_decision = await self.coordinator.analyze_and_decide(
-                current_price=kline.close,
-                account_balance=self.state.current_balance,
-                current_positions=current_positions,
-            )
+            # 使用LLM优化器（如果配置了）
+            if self.llm_optimizer:
+                trading_decision = await self.llm_optimizer.get_decision(
+                    coordinator=self.coordinator,
+                    current_price=kline.close,
+                    account_balance=self.state.current_balance,
+                    current_positions=current_positions,
+                    kline=kline,
+                )
+
+                # 更新LLM统计
+                stats = self.llm_optimizer.get_stats()
+                self.state.llm_calls = stats["total_calls"]
+                self.state.llm_cache_hits = stats["cache_hits"]
+            else:
+                # 原有流程：直接调用coordinator
+                trading_decision = await self.coordinator.analyze_and_decide(
+                    current_price=kline.close,
+                    account_balance=self.state.current_balance,
+                    current_positions=current_positions,
+                )
 
             self.state.total_decisions += 1
-            self.state.llm_calls += 1  # TODO: 从LLM优化器获取真实调用数
 
             # 4. 提取信号
             processed_signal = getattr(self.coordinator, '_last_processed_signal', None)

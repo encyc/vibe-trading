@@ -57,6 +57,16 @@ class BacktestConfig:
     max_concurrent_decisions: int = 3  # 并发决策数（用于模拟模式）
     enable_progress_bar: bool = True
 
+    # 检查点配置
+    save_checkpoints: bool = False  # 是否保存检查点
+    checkpoint_interval: int = 100  # 每N根K线保存一次检查点
+    checkpoint_dir: str = "./checkpoints"  # 检查点保存目录
+    resume_from_checkpoint: Optional[str] = None  # 从检查点恢复的路径
+
+    # 决策采样配置
+    decision_interval: int = 1  # 决策采样间隔（每N根K线决策一次）
+    significant_change_threshold: float = 0.02  # 重要变化阈值（2%）
+
 
 @dataclass
 class Trade:

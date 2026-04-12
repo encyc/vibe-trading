@@ -6,7 +6,7 @@ Agent 工厂基类
 import asyncio
 import logging
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from pi_agent_core import Agent, AgentOptions, AgentEvent
 from pi_agent_core.types import TextContent, ThinkingContent
 from pi_ai.config import get_model_from_config
@@ -99,7 +99,11 @@ log = get_logger("AgentFactory")
 
 
 class ToolContext:
-    """工具上下文，提供数据访问"""
+    """
+    工具上下文，提供数据访问
+
+    支持实时和回测两种模式。
+    """
 
     def __init__(
         self,
@@ -107,11 +111,78 @@ class ToolContext:
         interval: str,
         storage=None,
         executor=None,
+        # 回测模式相关参数
+        mode: Literal["live", "backtest"] = "live",
+        current_timestamp: Optional[int] = None,
+        historical_klines: Optional[List] = None,
+        fundamental_storage=None,
+        news_storage=None,
+        sentiment_storage=None,
+        macro_storage=None,
     ):
         self.symbol = symbol
         self.interval = interval
         self.storage = storage
         self.executor = executor
+
+        # 回测模式相关
+        self.mode = mode
+        self.current_timestamp = current_timestamp
+        self.historical_klines = historical_klines or []
+        self.fundamental_storage = fundamental_storage
+        self.news_storage = news_storage
+        self.sentiment_storage = sentiment_storage
+        self.macro_storage = macro_storage
+
+    def is_backtest(self) -> bool:
+        """是否为回测模式"""
+        return self.mode == "backtest"
+
+    def is_live(self) -> bool:
+        """是否为实时模式"""
+        return self.mode == "live"
+
+    async def get_historical_data_at(
+        self,
+        data_type: str,
+        timestamp: Optional[int] = None
+    ) -> Optional[Any]:
+        """
+        获取指定时间点的历史数据
+
+        Args:
+            data_type: 数据类型（fundamental, news, sentiment, macro）
+            timestamp: 时间戳（如果为None则使用current_timestamp）
+
+        Returns:
+            历史数据对象，如果不存在则返回None
+        """
+        if not self.is_backtest():
+            return None
+
+        ts = timestamp or self.current_timestamp
+        if not ts:
+            return None
+
+        try:
+            if data_type == "fundamental" and self.fundamental_storage:
+                return await self.fundamental_storage.get_fundamental_data(
+                    self.symbol, ts
+                )
+            elif data_type == "news" and self.news_storage:
+                return await self.news_storage.get_news_at(self.symbol, ts)
+            elif data_type == "sentiment" and self.sentiment_storage:
+                return await self.sentiment_storage.get_sentiment_at(
+                    self.symbol, ts
+                )
+            elif data_type == "macro" and self.macro_storage:
+                return await self.macro_storage.get_state_by_timestamp(
+                    self.symbol, ts
+                )
+        except Exception as e:
+            log.warning(f"获取历史数据失败 ({data_type}): {e}")
+
+        return None
 
 
 async def create_trading_agent(
