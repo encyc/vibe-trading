@@ -36,6 +36,10 @@ class DataLoadResult:
     time_range: tuple[datetime, datetime]
     has_gaps: bool  # 是否有数据缺口
 
+    # Lookback 相关字段
+    lookback_start_time: Optional[datetime] = None  # 实际数据加载的开始时间（包含lookback）
+    backtest_start_time: Optional[datetime] = None  # 回测开始的实际时间
+
 
 class BacktestDataLoader:
     """
@@ -355,6 +359,61 @@ class BacktestDataLoader:
         else:
             # 默认30分钟
             return 30
+
+    async def load_with_lookback(
+        self,
+        symbol: str,
+        start_time: datetime,
+        end_time: datetime,
+        interval: str,
+        lookback_periods: int,
+        source: Optional[DataSource] = None,
+        fill_gaps: bool = True,
+    ) -> DataLoadResult:
+        """
+        加载包含lookback数据的K线
+
+        Args:
+            symbol: 交易品种
+            start_time: 回测开始时间
+            end_time: 回测结束时间
+            interval: K线间隔
+            lookback_periods: 需要额外加载的历史周期数
+            source: 数据源（如果为None则使用default_source）
+            fill_gaps: 是否填充数据缺口
+
+        Returns:
+            包含lookback数据的加载结果
+        """
+        # 计算需要额外加载的时间增量
+        interval_minutes = self._parse_interval_to_minutes(interval)
+        lookback_timedelta = timedelta(minutes=interval_minutes * lookback_periods)
+
+        # 计算实际数据加载的开始时间
+        extra_start_time = start_time - lookback_timedelta
+
+        logger.info(
+            f"加载K线数据（含lookback）: {symbol} {interval}\n"
+            f"  回测期间: {start_time} ~ {end_time}\n"
+            f"  数据加载: {extra_start_time} ~ {end_time}\n"
+            f"  Lookback: {lookback_periods}周期 ({lookback_timedelta})"
+        )
+
+        # 加载完整数据
+        result = await self.load_klines(
+            symbol=symbol,
+            start_time=extra_start_time,
+            end_time=end_time,
+            interval=interval,
+            source=source,
+            fill_gaps=fill_gaps,
+        )
+
+        # 标记lookback期间
+        result.lookback_start_time = extra_start_time
+        result.backtest_start_time = start_time
+
+        return result
 
 
 # ============================================================================
