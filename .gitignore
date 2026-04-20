@@ -66,3 +66,5 @@ backend/test_*.py
 node_modules/*
 docs/node_modules/*
 docs/INTRO_ZHIHU*
+checkpoints/
+backtest_results/
