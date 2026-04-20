@@ -134,33 +134,67 @@ class OnBarThread:
     async def _process_kline(self, kline) -> None:
         """
         Process K-line data
-        
+
         Args:
             kline: K-line data
         """
         self._total_bars += 1
         self._last_bar_time = datetime.now()
-        
+
         # Extract price
         close_price = float(kline.close)
-        
+
         logger.debug(f"Processing K-line: {self.symbol} @ ${close_price:.2f}")
-        
+
+        # 发送K线数据到Web (忽略错误，Web可能未启动)
         try:
+            from vibe_trading.web.server import send_kline, send_log
+            await send_kline({
+                "time": datetime.now().isoformat(),
+                "open": float(kline.open),
+                "high": float(kline.high),
+                "low": float(kline.low),
+                "close": close_price,
+                "volume": float(kline.volume),
+            })
+        except Exception:
+            pass  # Web服务器未启动时忽略
+
+        try:
+            # 发送日志到Web
+            from vibe_trading.web.server import send_log, send_phase
+            await send_log("info", "OnBar", f"处理K线: {self.symbol} @ ${close_price:.2f}")
+            await send_phase("ANALYZING", "running")
+
             # Execute full 5-phase decision flow with all 13 agents
             decision = await self._coordinator.analyze_and_decide(
                 current_price=close_price,
                 account_balance=10000.0,  # Would get from account
                 current_positions=[],  # Would get from position manager
             )
-            
+
             self._decisions_made += 1
-            
+
             # Log decision
             logger.info(
                 f"Decision: {decision.decision} - {decision.rationale[:100]}..."
             )
-            
+
+            # 发送决策到Web
+            try:
+                from vibe_trading.web.server import send_decision
+                await send_decision({
+                    "index": self._decisions_made,
+                    "time": datetime.now().isoformat(),
+                    "close": close_price,
+                    "decision": decision.decision,
+                    "rationale": decision.rationale,
+                })
+                await send_log("info", "Decision", f"决策: {decision.decision}")
+                await send_phase("COMPLETED", "completed")
+            except Exception:
+                pass  # Web服务器未启动时忽略
+
             # Send message
             message_broker = get_message_broker()
             message_broker.send(
@@ -175,13 +209,19 @@ class OnBarThread:
                 },
                 correlation_id=f"onbar_{int(datetime.now().timestamp() * 1000)}",
             )
-            
+
             # Execute trade if needed
             if decision.decision in ["BUY", "SELL", "STRONG_BUY", "STRONG_SELL"]:
                 await self._execute_trade(decision)
-            
+
         except Exception as e:
             logger.error(f"Error in decision flow: {e}", exc_info=True)
+            # 发送错误日志到Web
+            try:
+                from vibe_trading.web.server import send_log
+                await send_log("error", "OnBar", f"决策流程错误: {e}")
+            except Exception:
+                pass
     
     async def _execute_trade(self, decision: TradingDecision) -> None:
         """

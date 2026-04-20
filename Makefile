@@ -1,11 +1,11 @@
-.PHONY: help install start analyze web test lint format typecheck clean all
+.PHONY: help install start start-web analyze web test lint format typecheck clean all
 
 # Default target
 .DEFAULT_GOAL := help
 
 # Variables
 SYMBOL ?= BTCUSDT
-PYTHONPATH = src
+PYTHONPATH = backend/src
 BACKEND_DIR = backend
 
 help: ## Show this help message
@@ -24,31 +24,33 @@ start: ## Run trading system (multi-threaded)
 	@echo "Starting trading system for $(SYMBOL)..."
 	PYTHONPATH=$(PYTHONPATH) uv run -- vibe-trade start $(SYMBOL)
 
+start-web: ## Run trading system with web monitoring (http://localhost:8000)
+	@echo "Starting trading system with web monitoring for $(SYMBOL)..."
+	PYTHONPATH=$(PYTHONPATH) uv run -- vibe-trade start $(SYMBOL) --web
+
 analyze: ## Run single analysis
 	@echo "Analyzing $(SYMBOL)..."
 	PYTHONPATH=$(PYTHONPATH) uv run -- vibe-trade analyze --symbol $(SYMBOL)
 
 web: ## Run web monitoring interface (http://localhost:8000)
 	@echo "Starting web interface..."
-	uv run test_historical.py
+	PYTHONPATH=$(PYTHONPATH) uv run backend/src/vibe_trading/web/server.py
 
 test: ## Run all tests
 	@echo "Running tests..."
-	uv run test_technical_analysis.py
-	uv run test_sentiment_tools.py
-	uv run test_researchers.py
+	cd tests && uv run pytest test_backtest_system.py -v
 
 test-technical: ## Run technical analysis tests
 	@echo "Running technical analysis tests..."
-	uv run test_technical_analysis.py
+	cd tests && uv run pytest test_technical_analysis.py -v
 
 test-sentiment: ## Run sentiment tools tests
 	@echo "Running sentiment tools tests..."
-	uv run test_sentiment_tools.py
+	cd tests && uv run pytest test_sentiment_tools.py -v
 
 test-researchers: ## Run researcher tests
 	@echo "Running researcher tests..."
-	uv run test_researchers.py
+	cd tests && uv run pytest test_researchers.py -v
 
 lint: ## Run linting (ruff check)
 	@echo "Running linter..."
