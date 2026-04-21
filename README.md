@@ -171,3 +171,13 @@ uv run test_historical.py  # 访问 http://localhost:8000
 ## 📄 许可证
 
 MIT License
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=encyc%2Fvibe-trading&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=encyc/vibe-trading&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=encyc/vibe-trading&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=encyc/vibe-trading&type=date&legend=top-left" />
+ </picture>
+</a>
