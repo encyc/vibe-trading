@@ -1,4 +1,4 @@
-.PHONY: help install start start-web analyze web test lint format typecheck clean all
+.PHONY: help install start start-web analyze web web-backtest test lint format typecheck clean all frontend frontend-dev frontend-build test-ws
 
 # Default target
 .DEFAULT_GOAL := help
@@ -32,9 +32,17 @@ analyze: ## Run single analysis
 	@echo "Analyzing $(SYMBOL)..."
 	PYTHONPATH=$(PYTHONPATH) uv run -- vibe-trade analyze --symbol $(SYMBOL)
 
-web: ## Run web monitoring interface (http://localhost:8000)
-	@echo "Starting web interface..."
+web: ## Run React frontend (http://localhost:3000)
+	@echo "Starting React frontend..."
+	cd frontend/react-app && npm run dev
+
+web-backend: ## Run backend web server (http://localhost:8000)
+	@echo "Starting backend web server..."
 	PYTHONPATH=$(PYTHONPATH) uv run backend/src/vibe_trading/web/server.py
+
+web-backtest: ## Run backtest web server (http://localhost:8001)
+	@echo "Starting backtest web server..."
+	PYTHONPATH=$(PYTHONPATH) uv run -- uvicorn backend.web_backtest.app:app --host 0.0.0.0 --port 8001
 
 test: ## Run all tests
 	@echo "Running tests..."
@@ -84,3 +92,33 @@ clean: ## Clean cache and temporary files
 
 all: install lint typecheck test ## Run install, checks and tests
 	@echo "Build completed successfully."
+
+# Frontend commands
+frontend: ## Install frontend dependencies
+	@echo "Installing frontend dependencies..."
+	cd frontend/react-app && npm install
+
+frontend-dev: ## Run frontend development server (http://localhost:3000)
+	@echo "Starting frontend development server..."
+	cd frontend/react-app && npm run dev
+
+frontend-build: ## Build frontend for production
+	@echo "Building frontend..."
+	cd frontend/react-app && npm run build
+
+full-start: ## Start backend with React frontend (development)
+	@echo "=========================================="
+	@echo "Starting Full Vibe Trading System"
+	@echo "=========================================="
+	@echo ""
+	@echo "Backend (WebSocket): http://localhost:8000"
+	@echo "Frontend (React):    http://localhost:3000"
+	@echo ""
+	@echo "Press Ctrl+C to stop both services"
+	@echo "=========================================="
+	@echo ""
+	@make -j2 start-web web
+
+test-ws: ## Test WebSocket connection
+	@echo "Testing WebSocket connection to ws://localhost:8000/ws"
+	@python3 scripts/test_websocket.py

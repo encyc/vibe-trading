@@ -10,16 +10,29 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
+from pi_logger import get_logger
+from vibe_trading.data_sources.kline_storage import KlineStorage, KlineQuery
+from vibe_trading.data_sources.technical_indicators import TechnicalIndicators
+
 app = FastAPI(title="Vibe Trading Monitor")
 
-# 静态文件目录 - 从 server.py (backend/src/vibe_trading/web/) 往上 4 级到项目根
-static_dir = Path(__file__).parent.parent.parent.parent.parent / "frontend"
-static_dir.mkdir(exist_ok=True)
+# Add CORS middleware - allow all origins for development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# 全局存储和指标计算器
+kline_storage = KlineStorage()
+technical_indicators = TechnicalIndicators()
 
 
 class ConnectionState:
@@ -33,6 +46,7 @@ class ConnectionState:
         self.logs: List[dict] = []
         self.phase_status: dict = {}
         self.agent_reports: dict = {}
+        self.indicators: dict = {}  # 技术指标数据
 
     async def broadcast(self, message: dict):
         """广播消息给所有连接"""
@@ -54,6 +68,99 @@ class ConnectionState:
 state = ConnectionState()
 
 
+async def load_historical_klines(symbol: str = "BTCUSDT", interval: str = "1h", limit: int = 100):
+    """加载历史K线数据"""
+    logger = get_logger("webserver")
+    try:
+        # 初始化存储
+        await kline_storage.init()
+
+        # 查询历史K线
+        query = KlineQuery(symbol=symbol, interval=interval, limit=limit)
+        klines = await kline_storage.query_klines(query)
+
+        if not klines:
+            logger.warning(f"No historical klines found for {symbol}")
+            return
+
+        # 转换为字典格式并添加到状态
+        for kline in klines:
+            kline_dict = {
+                "time": datetime.fromtimestamp(kline.open_time / 1000).isoformat(),
+                "open": kline.open,
+                "high": kline.high,
+                "low": kline.low,
+                "close": kline.close,
+                "volume": kline.volume,
+            }
+            state.klines.append(kline_dict)
+
+        logger.info(f"Loaded {len(klines)} historical klines")
+
+        # 计算技术指标
+        await calculate_indicators()
+
+    except Exception as e:
+        logger.error(f"Failed to load historical klines: {e}", exc_info=True)
+    finally:
+        await kline_storage.close()
+
+
+async def calculate_indicators():
+    """计算技术指标"""
+    if len(state.klines) < 50:
+        return
+
+    logger = get_logger("webserver")
+
+    try:
+        # 准备数据
+        opens = [k["open"] for k in state.klines]
+        highs = [k["high"] for k in state.klines]
+        lows = [k["low"] for k in state.klines]
+        closes = [k["close"] for k in state.klines]
+        volumes = [k["volume"] for k in state.klines]
+
+        # 加载到技术指标计算器
+        technical_indicators.load_data(opens, highs, lows, closes, volumes)
+
+        # 计算所有指标
+        df = technical_indicators.calculate_all()
+
+        # 辅助函数：安全转换值为JSON可序列化的格式
+        def safe_to_list(series):
+            result = []
+            for val in series:
+                # 使用pd.isna来检测NaN
+                import pandas as pd
+                if pd.isna(val):
+                    result.append(None)
+                else:
+                    result.append(float(val) if val is not None else None)
+            return result
+
+        # 提取指标数据
+        state.indicators = {
+            "rsi": safe_to_list(df["rsi"]),
+            "macd": safe_to_list(df["macd"]),
+            "macd_signal": safe_to_list(df["macd_signal"]),
+            "macd_hist": safe_to_list(df["macd_hist"]),
+            "sma_20": safe_to_list(df["sma_20"]),
+            "sma_50": safe_to_list(df["sma_50"]),
+            "ema_12": safe_to_list(df["ema_12"]),
+            "ema_26": safe_to_list(df["ema_26"]),
+            "bb_upper": safe_to_list(df["bb_upper"]),
+            "bb_middle": safe_to_list(df["bb_middle"]),
+            "bb_lower": safe_to_list(df["bb_lower"]),
+            "atr": safe_to_list(df["atr"]),
+        }
+
+        logger.info(f"Calculated technical indicators for {len(state.klines)} klines")
+
+    except Exception as e:
+        logger.error(f"Failed to calculate indicators: {e}", exc_info=True)
+
+
 # =============================================================================
 # WebSocket 端点
 # =============================================================================
@@ -61,27 +168,63 @@ state = ConnectionState()
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket 连接端点"""
+    logger = get_logger("webserver")
     await websocket.accept()
     state.active_connections.append(websocket)
-
-    # 发送初始状态
-    await websocket.send_text(json.dumps({
-        "type": "init",
-        "timestamp": datetime.now().isoformat(),
-        "data": {
-            "klines": state.klines,
-            "decisions": state.decisions,
-            "logs": state.logs[-100:],  # 最近100条
-            "phase_status": state.phase_status,
-            "agent_reports": state.agent_reports,
-        }
-    }))
+    logger.info(f"WebSocket connected. Total clients: {len(state.active_connections)}")
 
     try:
+        # 小延迟确保客户端准备好接收数据
+        await asyncio.sleep(0.1)
+
+        # 如果没有K线数据，加载历史数据
+        if not state.klines:
+            await load_historical_klines()
+
+        # 发送初始状态
+        await websocket.send_text(json.dumps({
+            "type": "init",
+            "timestamp": datetime.now().isoformat(),
+            "data": {
+                "klines": state.klines,
+                "indicators": state.indicators,  # 发送技术指标数据
+                "decisions": state.decisions,
+                "logs": state.logs[-100:],  # 最近100条
+                "phase_status": state.phase_status,
+                "agent_reports": state.agent_reports,
+            }
+        }))
+
+        # 保持连接活跃，等待客户端消息
         while True:
-            await websocket.receive_text()
+            try:
+                # 接收客户端消息
+                data = await websocket.receive_text()
+                
+                # 处理心跳
+                if data == "ping":
+                    await websocket.send_text("pong")
+                    logger.debug("Received ping, sent pong")
+                elif data == "pong":
+                    logger.debug("Received pong")
+                    
+            except asyncio.TimeoutError:
+                # 超时错误 - 忽略，让连接保持
+                logger.warning(f"Message timeout, keeping connection alive")
+                continue
+                    
+            except Exception as e:
+                logger.error(f"Message receive error: {e}")
+                break
+
     except WebSocketDisconnect:
-        state.active_connections.remove(websocket)
+        logger.info("WebSocket disconnected normally")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}", exc_info=True)
+    finally:
+        if websocket in state.active_connections:
+            state.active_connections.remove(websocket)
+            logger.info(f"WebSocket removed. Total clients: {len(state.active_connections)}")
 
 
 # =============================================================================
@@ -105,15 +248,6 @@ class DecisionData(BaseModel):
     close: float
     decision: str
     rationale: str
-
-
-@app.get("/")
-async def get_html():
-    """获取 HTML 页面"""
-    html_file = static_dir / "index.html"
-    if html_file.exists():
-        return HTMLResponse(html_file.read_text())
-    return HTMLResponse("<h1>Vibe Trading Monitor</h1><p>Frontend not found. Run: python build_frontend.py</p>")
 
 
 @app.get("/api/status")
@@ -151,6 +285,10 @@ async def add_kline(kline: KlineData):
     kline_dict = kline.model_dump()
     state.klines.append(kline_dict)
     state.current_kline = kline_dict
+
+    # 重新计算技术指标
+    await calculate_indicators()
+
     await state.send_update("kline", kline_dict)
     return {"success": True}
 
