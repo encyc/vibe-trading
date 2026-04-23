@@ -18,6 +18,12 @@ Vibe Trading is a multi-agent cryptocurrency trading system powered by Large Lan
 3. **Phase 3 - Risk Team**: Aggressive, Neutral, Conservative risk assessments
 4. **Phase 4 - Decision Layer**: Trader creates execution plan → Portfolio manager makes final decision
 
+**Prime Agent Mode:**
+- Monitoring mode for observing market without trading
+- Uses `PrimeAgent` with `PrimeConfig` for configuration
+- Command: `vibe-trade prime BTCUSDT`
+- Tests located in `tests/prime/`
+
 **Threading Architecture:**
 - **Macro Thread**: Runs every hour, analyzes macro environment (trend, sentiment, events)
 - **On Bar Thread**: K-line triggered, reads macro state and runs simplified 3-phase flow
@@ -25,30 +31,55 @@ Vibe Trading is a multi-agent cryptocurrency trading system powered by Large Lan
 
 ## Development Commands
 
+**Recommended: Use Makefile (from project root)**
 ```bash
-# Install dependencies
-cd backend && uv pip install -e .
-
-# Run trading system (multi-threaded)
-PYTHONPATH=src uv run -- vibe-trade start BTCUSDT
-
-# Run single analysis
-PYTHONPATH=src uv run -- vibe-trade analyze --symbol BTCUSDT
-
-# Run with web monitoring
-uv run test_historical.py  # Web UI at http://localhost:8000
+make install          # Install dependencies
+make start            # Run trading system (SYMBOL=BTCUSDT)
+make start-web        # Run with web monitoring (localhost:8000)
+make analyze          # Single analysis
+make test             # Run all tests
+make check            # Lint + typecheck
+make fix              # Auto-fix linting issues
+make clean            # Clean cache files
 
 # Run specific tests
-uv run test_technical_analysis.py
-uv run test_sentiment_tools.py
-uv run test_researchers.py
+make test-technical   # Technical analysis tests
+make test-sentiment   # Sentiment tools tests
+make test-researchers # Researcher tests
+```
 
-# Linting (use ruff, not black)
-uv run ruff check backend/src/
-uv run ruff format backend/src/
+**Backend (Python) - from backend directory**
+```bash
+cd backend && uv pip install -e .
 
-# Type checking
-uv run mypy backend/src/
+# Run trading system
+PYTHONPATH=src uv run -- vibe-trade start BTCUSDT
+
+# Prime Agent monitoring mode
+PYTHONPATH=src uv run -- vibe-trade prime BTCUSDT
+
+# Backtest
+PYTHONPATH=src uv run -- vibe-trade backtest BTCUSDT --start "2024-01-01" --end "2024-01-31"
+
+# Run tests (pytest-asyncio auto mode enabled)
+cd tests && uv run pytest test_backtest_system.py -v
+```
+
+**Frontend (React/Vite) - from frontend/react-app**
+```bash
+npm install           # Install dependencies
+npm run dev           # Development server (localhost:3000)
+npm run build         # Production build (tsc + vite)
+npm run lint          # ESLint check
+```
+
+**Web Services**
+```bash
+make web              # React frontend (localhost:3000)
+make web-backend      # Backend web server (localhost:8000)
+make web-backtest     # Backtest web server (localhost:8001)
+make full-start       # Backend + frontend together
+make test-ws          # Test WebSocket connection
 ```
 
 ## Configuration
@@ -107,6 +138,11 @@ uv run mypy backend/src/
 - `MacroStorage`: SQLite-based macro state storage
 - `RateLimiter`: Token bucket rate limiter (2400 requests/minute)
 
+### Web Modules
+- `vibe_trading.web`: Main web server with WebSocket support
+- `backend.web_backtest`: Backtest web server (port 8001)
+- `backend.web_live`: Live trading web interface module
+
 ## Important Notes
 
 ### Logging
@@ -121,9 +157,12 @@ uv run mypy backend/src/
 - Use `setup_streaming()` for streaming event callbacks
 
 ### Testing
-- Test files are in root directory (not backend/src)
+- Test files are in `tests/` directory (pytest.ini configured)
+- pytest-asyncio auto mode: async test functions are automatically detected
 - Tests use real market data from Binance
 - Some tests require API keys in `.env`
+- Prime Agent tests in `tests/prime/`
+- Run specific test file: `cd tests && uv run pytest test_name.py -v`
 
 ### Database
 - Uses SQLite with aiosqlite for async operations
@@ -135,12 +174,23 @@ uv run mypy backend/src/
 - Emergency mode pauses main thread for critical events
 - Use `ThreadManager` to manage thread lifecycle
 
+### Frontend (React)
+- Located in `frontend/react-app/` (Vite + TypeScript)
+- WebSocket connection to backend for real-time updates
+- Uses lightweight-charts for K-line visualization
+- Components: `src/components/` (Panel, Chart, AgentFlow, etc.)
+- Services: `src/services/` (WebSocket client)
+- Hooks: `src/hooks/` (useWebSocket, usePanel, etc.)
 
-# CLAUDE.md
+### Documentation Site
+- VitePress docs in `docs/` directory
+- Deployed to GitHub Pages via `.github/workflows/deploy.yml`
+- Build: `cd docs && npm run build`
+- Preview: `cd docs && npm run preview`
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+## Behavioral Guidelines
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+These guidelines reduce common LLM coding mistakes and bias toward caution over speed. For trivial tasks, use judgment.
 
 ## 1. Think Before Coding
 
