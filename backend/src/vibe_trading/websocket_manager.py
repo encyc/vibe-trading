@@ -334,15 +334,22 @@ class WebSocketManager:
 
         self._active_connections.clear()
 
-        # 关闭BSM
+        # 关闭BSM - 使用 _stop_socket 关闭内部连接
         if self._bsm:
-            await self._bsm.close()
+            try:
+                # BinanceSocketManager 没有 close 方法，需要关闭内部连接
+                if hasattr(self._bsm, '_conn'):
+                    await self._bsm._conn.close()
+            except Exception:
+                pass
             self._bsm = None
 
         # 关闭客户端
         if self._client:
-            await self._client.close_connection()
-            await self._client.close()
+            try:
+                await self._client.close_connection()
+            except Exception:
+                pass
             self._client = None
 
         log.success("WebSocket已停止")

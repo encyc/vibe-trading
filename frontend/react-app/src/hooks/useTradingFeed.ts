@@ -27,9 +27,12 @@ function withLatestKline(klines: KlineData[], incoming: KlineData): KlineData[] 
   const incomingTime = new Date(incoming.time).getTime();
   const lastTime = new Date(last.time).getTime();
 
+  // 相同时间戳 - 替换最后一根
   if (incomingTime === lastTime) {
     return [...klines.slice(0, -1), incoming];
   }
+
+  // 新K线时间更早（历史数据补齐）- 去重合并
   if (incomingTime < lastTime) {
     const map = new Map<string, KlineData>();
     for (const item of klines) {
@@ -41,7 +44,24 @@ function withLatestKline(klines: KlineData[], incoming: KlineData): KlineData[] 
       .slice(-MAX_KLINES);
   }
 
+  // 新K线时间更晚 - 正常追加
   return [...klines, incoming].slice(-MAX_KLINES);
+}
+
+// 去重并排序K线数据
+function dedupeAndSortKlines(klines: KlineData[]): KlineData[] {
+  if (!klines || klines.length === 0) {
+    return [];
+  }
+
+  const map = new Map<string, KlineData>();
+  for (const item of klines) {
+    map.set(item.time, item);
+  }
+
+  return Array.from(map.values())
+    .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+    .slice(-MAX_KLINES);
 }
 
 function stableString(errorLike: unknown): string {
@@ -144,7 +164,7 @@ export function useTradingFeed() {
       switch (message.type) {
         case 'init':
           return {
-            klines: message.data.klines ?? [],
+            klines: dedupeAndSortKlines(message.data.klines ?? []),
             indicators: message.data.indicators ?? EMPTY_INDICATORS,
             decisions: (message.data.decisions ?? []).slice(-MAX_DECISIONS),
             logs: (message.data.logs ?? []).slice(-MAX_LOGS),

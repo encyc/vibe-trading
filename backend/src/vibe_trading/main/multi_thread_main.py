@@ -416,8 +416,10 @@ class MultiThreadedTradingSystem:
         """Setup signal handlers for graceful shutdown"""
         def signal_handler(signum, frame):
             log.info(f"Received signal {signum}, initiating shutdown...")
-            asyncio.create_task(self.stop())
-        
+            # 使用线程安全的方式触发关闭
+            self._shutdown_event.set()
+            self._running = False
+
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 

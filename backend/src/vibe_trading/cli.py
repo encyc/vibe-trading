@@ -234,8 +234,10 @@ async def run_multi_thread_system(
             info("正在关闭 Web 服务器...", tag="WEB")
             web_server_task.cancel()
             try:
-                await web_server_task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(web_server_task, timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            except Exception:
                 pass
 
         info("系统关闭完成")
