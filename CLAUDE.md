@@ -58,11 +58,8 @@ PYTHONPATH=src uv run -- vibe-trade start BTCUSDT
 # Prime Agent monitoring mode
 PYTHONPATH=src uv run -- vibe-trade prime BTCUSDT
 
-# Backtest
-PYTHONPATH=src uv run -- vibe-trade backtest BTCUSDT --start "2024-01-01" --end "2024-01-31"
-
 # Run tests (pytest-asyncio auto mode enabled)
-cd tests && uv run pytest test_backtest_system.py -v
+cd tests && uv run pytest -v
 ```
 
 **Frontend (React/Vite) - from frontend/react-app**
@@ -77,7 +74,6 @@ npm run lint          # ESLint check
 ```bash
 make web              # React frontend (localhost:3000)
 make web-backend      # Backend web server (localhost:8000)
-make web-backtest     # Backtest web server (localhost:8001)
 make full-start       # Backend + frontend together
 make test-ws          # Test WebSocket connection
 ```
@@ -140,7 +136,6 @@ make test-ws          # Test WebSocket connection
 
 ### Web Modules
 - `vibe_trading.web`: Main web server with WebSocket support
-- `backend.web_backtest`: Backtest web server (port 8001)
 - `backend.web_live`: Live trading web interface module
 
 ## Important Notes

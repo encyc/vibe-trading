@@ -420,4 +420,3 @@ print(prices)
 
 - 查看 [配置说明](/guide/configuration) 了解多交易所配置
 - 学习 [自定义Agent](/guide/custom-agent) 添加新功能
-- 了解 [回测系统](/guide/backtest) 验证策略

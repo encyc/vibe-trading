@@ -418,5 +418,4 @@ class DecisionTracker:
 ## 下一步
 
 - 配置 [Web监控](/guide/monitoring) 查看实时流程
-- 了解 [回测系统](/guide/backtest) 验证策略
 - 学习 [记忆系统](/guide/memory) 优化决策

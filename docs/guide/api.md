@@ -185,57 +185,7 @@ curl http://localhost:8000/api/agents
 curl http://localhost:8000/api/agents/TechnicalAnalyst
 ```
 
-#### 5. 回测
-
-**POST /api/backtest**
-
-启动回测任务
-
-```bash
-curl -X POST http://localhost:8000/api/backtest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "symbol": "BTCUSDT",
-    "interval": "1h",
-    "start_time": "2024-01-01T00:00:00Z",
-    "end_time": "2024-01-31T23:59:59Z",
-    "initial_balance": 10000,
-    "llm_mode": "simulated"
-  }'
-```
-
-**响应示例**:
-```json
-{
-  "task_id": "backtest_001",
-  "status": "running",
-  "estimated_duration": 300
-}
-```
-
-**GET /api/backtest/{task_id}**
-
-查询回测任务状态
-
-```bash
-curl http://localhost:8000/api/backtest/backtest_001
-```
-
-**响应示例**:
-```json
-{
-  "task_id": "backtest_001",
-  "status": "completed",
-  "progress": 100,
-  "result": {
-    "total_return": 0.1523,
-    "sharpe_ratio": 1.85,
-    "max_drawdown": -0.0845
-  }
-}
-```
-
-#### 6. 配置管理
+#### 5. 配置管理
 
 **GET /api/config**
 
@@ -453,15 +403,6 @@ print(market_data)
 # 获取决策历史
 decisions = client.get_decisions(symbol="BTCUSDT", limit=10)
 print(decisions)
-
-# 启动回测
-backtest = client.start_backtest({
-    "symbol": "BTCUSDT",
-    "interval": "1h",
-    "start_time": "2024-01-01T00:00:00Z",
-    "end_time": "2024-01-31T23:59:59Z"
-})
-print(backtest)
 ```
 
 ## JavaScript SDK
@@ -549,4 +490,3 @@ X-RateLimit-Reset: 1704110400
 
 - 了解 [配置说明](/guide/configuration) 配置 API
 - 学习 [自定义Agent](/guide/custom-agent) 扩展功能
-- 查看 [回测系统](/guide/backtest) 验证策略

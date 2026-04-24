@@ -1,4 +1,4 @@
-.PHONY: help install start start-web analyze web web-backtest test lint format typecheck clean all frontend frontend-dev frontend-build test-ws
+.PHONY: help install start start-web analyze web test lint format typecheck clean all frontend frontend-dev frontend-build test-ws
 
 # Default target
 .DEFAULT_GOAL := help
@@ -40,13 +40,9 @@ web-backend: ## Run backend web server (http://localhost:8000)
 	@echo "Starting backend web server..."
 	PYTHONPATH=$(PYTHONPATH) uv run backend/src/vibe_trading/web/server.py
 
-web-backtest: ## Run backtest web server (http://localhost:8001)
-	@echo "Starting backtest web server..."
-	PYTHONPATH=$(PYTHONPATH) uv run -- uvicorn backend.web_backtest.app:app --host 0.0.0.0 --port 8001
-
 test: ## Run all tests
 	@echo "Running tests..."
-	cd tests && uv run pytest test_backtest_system.py -v
+	cd tests && uv run pytest -v
 
 test-technical: ## Run technical analysis tests
 	@echo "Running technical analysis tests..."

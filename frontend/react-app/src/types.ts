@@ -108,52 +108,6 @@ export interface SystemStatus {
   current_phase: string | null;
 }
 
-export type LlmMode = 'simulated' | 'cached' | 'real';
-export type BacktestTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
-
-export interface BacktestCreateRequest {
-  symbol: string;
-  interval: string;
-  start_time: string;
-  end_time: string;
-  initial_balance: number;
-  llm_mode: LlmMode;
-}
-
-export interface BacktestTask {
-  task_id: string;
-  symbol: string;
-  interval: string;
-  start_time: string;
-  end_time: string;
-  llm_mode: string;
-  status: BacktestTaskStatus;
-  current_kline: number;
-  total_klines: number;
-  current_equity: number;
-  total_trades: number;
-  llm_calls: number;
-  llm_cache_hits: number;
-  created_at: string;
-  started_at?: string;
-  completed_at?: string;
-  error_message?: string;
-}
-
-export interface BacktestProgress {
-  task_id: string;
-  status: BacktestTaskStatus;
-  current_kline: number;
-  total_klines: number;
-  progress_percentage: number;
-  current_equity: number;
-  total_trades: number;
-  llm_calls: number;
-  llm_cache_hits: number;
-  cache_hit_rate: number;
-  estimated_remaining_seconds?: number;
-}
-
 export interface BarTrace {
   symbol: string;
   interval: string;

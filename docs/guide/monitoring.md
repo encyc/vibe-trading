@@ -326,6 +326,5 @@ Web监控界面支持移动端访问：
 
 ## 下一步
 
-- 了解 [回测系统](/guide/backtest) 验证策略
 - 学习 [配置说明](/guide/configuration) 自定义系统
 - 查看 [API文档](/guide/api) 集成外部应用

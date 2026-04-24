@@ -75,11 +75,6 @@ PYTHONPATH=backend/src uv run -- vibe-trade start BTCUSDT --mode live
 PYTHONPATH=backend/src uv run -- vibe-trade prime BTCUSDT
 ```
 
-### 回测
-
-```bash
-PYTHONPATH=backend/src uv run -- vibe-trade backtest BTCUSDT --start "2024-01-01" --end "2024-01-31"
-```
 
 ## 📁 项目结构
 
