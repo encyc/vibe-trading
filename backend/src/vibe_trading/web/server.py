@@ -17,6 +17,7 @@ import uvicorn
 from pi_logger import get_logger
 from vibe_trading.data_sources.kline_storage import KlineStorage, KlineQuery
 from vibe_trading.data_sources.technical_indicators import TechnicalIndicators
+from vibe_trading.web.journal_storage import DecisionJournalStorage
 
 app = FastAPI(title="Vibe Trading Monitor")
 
@@ -33,6 +34,7 @@ app.add_middleware(
 # 全局存储和指标计算器
 kline_storage = KlineStorage()
 technical_indicators = TechnicalIndicators()
+journal_storage = DecisionJournalStorage()
 
 
 class ConnectionState:
@@ -41,12 +43,27 @@ class ConnectionState:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.current_kline: Optional[dict] = None
+        self.current_symbol: str = "BTCUSDT"
+        self.current_interval: str = "30m"
         self.klines: List[dict] = []
         self.decisions: List[dict] = []
         self.logs: List[dict] = []
         self.phase_status: dict = {}
         self.agent_reports: dict = {}
-        self.indicators: dict = {}  # 技术指标数据
+        self.indicators: dict = {
+            "rsi": [],
+            "macd": [],
+            "macd_signal": [],
+            "macd_hist": [],
+            "sma_20": [],
+            "sma_50": [],
+            "ema_12": [],
+            "ema_26": [],
+            "bb_upper": [],
+            "bb_middle": [],
+            "bb_lower": [],
+            "atr": [],
+        }  # 技术指标数据
 
     async def broadcast(self, message: dict):
         """广播消息给所有连接"""
@@ -68,25 +85,48 @@ class ConnectionState:
 state = ConnectionState()
 
 
-async def load_historical_klines(symbol: str = "BTCUSDT", interval: str = "1h", limit: int = 100):
+@app.on_event("startup")
+async def startup_event():
+    """Initialize persistent journal storage."""
+    await journal_storage.init()
+
+
+def set_initial_config(symbol: str, interval: str):
+    """设置初始配置（在启动时调用）"""
+    state.current_symbol = symbol
+    state.current_interval = interval
+    logger = get_logger("webserver")
+    logger.info(f"初始配置已设置: {symbol} {interval}")
+
+
+async def load_historical_klines(symbol: str = None, interval: str = None, limit: int = 100):
     """加载历史K线数据"""
     logger = get_logger("webserver")
     try:
+        # 使用 state 中的配置（如果未指定）
+        actual_symbol = symbol or state.current_symbol
+        actual_interval = interval or state.current_interval
+
+        logger.info(f"加载历史K线: {actual_symbol} {actual_interval}")
+
         # 初始化存储
         await kline_storage.init()
 
         # 查询历史K线
-        query = KlineQuery(symbol=symbol, interval=interval, limit=limit)
+        query = KlineQuery(symbol=actual_symbol, interval=actual_interval, limit=limit)
         klines = await kline_storage.query_klines(query)
 
         if not klines:
-            logger.warning(f"No historical klines found for {symbol}")
+            logger.warning(f"No historical klines found for {actual_symbol} {actual_interval}")
             return
 
         # 转换为字典格式并添加到状态
         for kline in klines:
             kline_dict = {
                 "time": datetime.fromtimestamp(kline.open_time / 1000).isoformat(),
+                "open_time_ms": int(kline.open_time),
+                "symbol": actual_symbol,
+                "interval": actual_interval,
                 "open": kline.open,
                 "high": kline.high,
                 "low": kline.low,
@@ -177,19 +217,15 @@ async def websocket_endpoint(websocket: WebSocket):
         # 小延迟确保客户端准备好接收数据
         await asyncio.sleep(0.1)
 
-        # 如果没有K线数据，加载历史数据
-        if not state.klines:
-            await load_historical_klines()
-
-        # 发送初始状态
+        # 发送当前状态（数据已由交易线程加载）
         await websocket.send_text(json.dumps({
             "type": "init",
             "timestamp": datetime.now().isoformat(),
             "data": {
                 "klines": state.klines,
-                "indicators": state.indicators,  # 发送技术指标数据
+                "indicators": state.indicators,
                 "decisions": state.decisions,
-                "logs": state.logs[-100:],  # 最近100条
+                "logs": state.logs[-100:],
                 "phase_status": state.phase_status,
                 "agent_reports": state.agent_reports,
             }
@@ -239,6 +275,9 @@ class KlineData(BaseModel):
     low: float
     close: float
     volume: float
+    open_time_ms: Optional[int] = None
+    symbol: Optional[str] = None
+    interval: Optional[str] = None
 
 
 class DecisionData(BaseModel):
@@ -248,6 +287,39 @@ class DecisionData(BaseModel):
     close: float
     decision: str
     rationale: str
+    open_time_ms: Optional[int] = None
+    symbol: Optional[str] = None
+    interval: Optional[str] = None
+
+
+class InitConfig(BaseModel):
+    """初始化配置"""
+    symbol: str = "BTCUSDT"
+    interval: str = "30m"
+
+
+@app.post("/api/init")
+async def init_config(config: InitConfig):
+    """初始化配置 - 设置交易对和K线周期"""
+    logger = get_logger("webserver")
+    logger.info(f"初始化配置: {config.symbol} {config.interval}")
+
+    # 更新状态
+    state.current_symbol = config.symbol
+    state.current_interval = config.interval
+
+    # 清空旧数据（如果有）
+    state.klines = []
+    state.decisions = []
+    state.logs = []
+
+    # 加载正确的历史K线
+    await load_historical_klines()
+
+    # 通知所有连接的客户端
+    await state.send_update("reset", {"symbol": config.symbol, "interval": config.interval})
+
+    return {"success": True, "symbol": config.symbol, "interval": config.interval}
 
 
 @app.get("/api/status")
@@ -283,11 +355,26 @@ async def get_logs():
 async def add_kline(kline: KlineData):
     """添加 K线数据"""
     kline_dict = kline.model_dump()
+    kline_dict["symbol"] = kline.symbol or state.current_symbol
+    kline_dict["interval"] = kline.interval or state.current_interval
+    if kline_dict.get("open_time_ms") is None:
+        kline_dict["open_time_ms"] = int(datetime.fromisoformat(kline.time).timestamp() * 1000)
+
+    state.current_symbol = kline_dict["symbol"]
+    state.current_interval = kline_dict["interval"]
     state.klines.append(kline_dict)
     state.current_kline = kline_dict
 
     # 重新计算技术指标
     await calculate_indicators()
+
+    await journal_storage.upsert_bar(
+        symbol=kline_dict["symbol"],
+        interval=kline_dict["interval"],
+        open_time_ms=int(kline_dict["open_time_ms"]),
+        bar_time=kline_dict["time"],
+        update={"kline": kline_dict},
+    )
 
     await state.send_update("kline", kline_dict)
     return {"success": True}
@@ -297,7 +384,24 @@ async def add_kline(kline: KlineData):
 async def add_decision(decision: DecisionData):
     """添加决策"""
     decision_dict = decision.model_dump()
+    decision_dict["symbol"] = decision.symbol or state.current_symbol
+    decision_dict["interval"] = decision.interval or state.current_interval
+    if decision_dict.get("open_time_ms") is None:
+        if state.current_kline and state.current_kline.get("open_time_ms") is not None:
+            decision_dict["open_time_ms"] = state.current_kline["open_time_ms"]
+        else:
+            decision_dict["open_time_ms"] = int(datetime.fromisoformat(decision.time).timestamp() * 1000)
+
     state.decisions.append(decision_dict)
+
+    await journal_storage.upsert_bar(
+        symbol=decision_dict["symbol"],
+        interval=decision_dict["interval"],
+        open_time_ms=int(decision_dict["open_time_ms"]),
+        bar_time=decision_dict["time"],
+        update={"decision": decision_dict},
+    )
+
     await state.send_update("decision", decision_dict)
     return {"success": True}
 
@@ -311,10 +415,26 @@ async def add_log(log_data: dict):
         "tag": log_data.get("tag", ""),
         "message": log_data.get("message", ""),
     }
+    symbol = log_data.get("symbol", state.current_symbol)
+    interval = log_data.get("interval", state.current_interval)
+    open_time_ms = log_data.get("open_time_ms")
+    if open_time_ms is None and state.current_kline and state.current_kline.get("open_time_ms") is not None:
+        open_time_ms = state.current_kline["open_time_ms"]
+
     state.logs.append(log_entry)
     # 限制日志数量
     if len(state.logs) > 500:
         state.logs = state.logs[-500:]
+
+    if open_time_ms is not None:
+        await journal_storage.upsert_bar(
+            symbol=symbol,
+            interval=interval,
+            open_time_ms=int(open_time_ms),
+            bar_time=log_entry["timestamp"],
+            update={"log": log_entry},
+        )
+
     await state.send_update("log", log_entry)
     return {"success": True}
 
@@ -328,6 +448,22 @@ async def update_phase(phase_data: dict):
 
     state.phase_status["current"] = phase
     state.phase_status[phase] = {"status": status, "duration": duration}
+
+    symbol = phase_data.get("symbol", state.current_symbol)
+    interval = phase_data.get("interval", state.current_interval)
+    open_time_ms = phase_data.get("open_time_ms")
+    if open_time_ms is None and state.current_kline and state.current_kline.get("open_time_ms") is not None:
+        open_time_ms = state.current_kline["open_time_ms"]
+
+    if open_time_ms is not None:
+        bar_time = state.current_kline.get("time") if state.current_kline else datetime.now().isoformat()
+        await journal_storage.upsert_bar(
+            symbol=symbol,
+            interval=interval,
+            open_time_ms=int(open_time_ms),
+            bar_time=bar_time,
+            update={"phase_status": state.phase_status},
+        )
 
     await state.send_update("phase", {
         "phase": phase,
@@ -343,11 +479,32 @@ async def add_report(report_data: dict):
     agent = report_data.get("agent", "")
     content = report_data.get("content", "")
     phase = report_data.get("phase", "")
+    symbol = report_data.get("symbol", state.current_symbol)
+    interval = report_data.get("interval", state.current_interval)
+    open_time_ms = report_data.get("open_time_ms")
+    if open_time_ms is None and state.current_kline and state.current_kline.get("open_time_ms") is not None:
+        open_time_ms = state.current_kline["open_time_ms"]
 
     if phase not in state.agent_reports:
         state.agent_reports[phase] = {}
 
     state.agent_reports[phase][agent] = content
+
+    if open_time_ms is not None:
+        bar_time = state.current_kline.get("time") if state.current_kline else datetime.now().isoformat()
+        await journal_storage.upsert_bar(
+            symbol=symbol,
+            interval=interval,
+            open_time_ms=int(open_time_ms),
+            bar_time=bar_time,
+            update={
+                "report": {
+                    "phase": phase,
+                    "agent": agent,
+                    "content": content,
+                }
+            },
+        )
 
     await state.send_update("report", {
         "agent": agent,
@@ -355,6 +512,30 @@ async def add_report(report_data: dict):
         "content": content
     })
     return {"success": True}
+
+
+@app.get("/api/bar/{open_time_ms}")
+async def get_bar_trace(open_time_ms: int, symbol: str = "BTCUSDT", interval: str = "30m"):
+    """按K线 open_time_ms 获取该根K线的完整决策追溯记录。"""
+    bar = await journal_storage.get_bar(symbol=symbol, interval=interval, open_time_ms=open_time_ms)
+    if bar is None:
+        return {"found": False, "bar": None}
+
+    return {
+        "found": True,
+        "bar": {
+            "symbol": bar.symbol,
+            "interval": bar.interval,
+            "open_time_ms": bar.open_time_ms,
+            "bar_time": bar.bar_time,
+            "kline": bar.kline,
+            "phase_status": bar.phase_status,
+            "decision": bar.decision,
+            "reports": bar.reports,
+            "logs": bar.logs,
+            "updated_at": bar.updated_at,
+        },
+    }
 
 
 @app.post("/api/reset")
@@ -405,7 +586,14 @@ async def send_decision(decision: dict) -> None:
         pass
 
 
-async def send_log(level: str, tag: str, message: str) -> None:
+async def send_log(
+    level: str,
+    tag: str,
+    message: str,
+    open_time_ms: Optional[int] = None,
+    symbol: Optional[str] = None,
+    interval: Optional[str] = None,
+) -> None:
     """发送日志"""
     import httpx
     try:
@@ -413,13 +601,23 @@ async def send_log(level: str, tag: str, message: str) -> None:
             await client.post(f"{_api_base_url}/api/log", json={
                 "level": level,
                 "tag": tag,
-                "message": message
+                "message": message,
+                "open_time_ms": open_time_ms,
+                "symbol": symbol,
+                "interval": interval,
             })
     except Exception:
         pass
 
 
-async def send_phase(phase: str, status: str = "running", duration: float = None) -> None:
+async def send_phase(
+    phase: str,
+    status: str = "running",
+    duration: float = None,
+    open_time_ms: Optional[int] = None,
+    symbol: Optional[str] = None,
+    interval: Optional[str] = None,
+) -> None:
     """更新阶段状态"""
     import httpx
     try:
@@ -427,13 +625,23 @@ async def send_phase(phase: str, status: str = "running", duration: float = None
             await client.post(f"{_api_base_url}/api/phase", json={
                 "phase": phase,
                 "status": status,
-                "duration": duration
+                "duration": duration,
+                "open_time_ms": open_time_ms,
+                "symbol": symbol,
+                "interval": interval,
             })
     except Exception:
         pass
 
 
-async def send_report(agent: str, content: str, phase: str = "") -> None:
+async def send_report(
+    agent: str,
+    content: str,
+    phase: str = "",
+    open_time_ms: Optional[int] = None,
+    symbol: Optional[str] = None,
+    interval: Optional[str] = None,
+) -> None:
     """发送 Agent 报告"""
     import httpx
     try:
@@ -441,7 +649,10 @@ async def send_report(agent: str, content: str, phase: str = "") -> None:
             await client.post(f"{_api_base_url}/api/report", json={
                 "agent": agent,
                 "content": content,
-                "phase": phase
+                "phase": phase,
+                "open_time_ms": open_time_ms,
+                "symbol": symbol,
+                "interval": interval,
             })
     except Exception:
         pass

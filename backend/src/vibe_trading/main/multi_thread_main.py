@@ -430,7 +430,7 @@ async def main():
     # Create system
     system = MultiThreadedTradingSystem(
         symbol="BTCUSDT",
-        interval="30m",
+        interval="3m",
     )
     
     # Setup signal handlers

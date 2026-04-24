@@ -1,4 +1,4 @@
-import type { BacktestCreateRequest, BacktestTask, SystemStatus } from '../types';
+import type { BacktestCreateRequest, BacktestTask, BarTrace, SystemStatus } from '../types';
 
 function stripTrailingSlash(input: string): string {
   return input.replace(/\/$/, '');
@@ -73,4 +73,16 @@ export function getBacktestProgressWsUrl(taskId: string): string {
     : base.replace('http://', 'ws://');
 
   return `${wsBase}/ws/progress/${taskId}`;
+}
+
+export async function getBarTrace(openTimeMs: number, symbol: string, interval: string): Promise<BarTrace | null> {
+  const params = new URLSearchParams({ symbol, interval });
+  const result = await requestJson<{ found: boolean; bar: BarTrace | null }>(
+    `${getCoreApiBaseUrl()}/api/bar/${openTimeMs}?${params.toString()}`,
+  );
+
+  if (!result.found) {
+    return null;
+  }
+  return result.bar;
 }

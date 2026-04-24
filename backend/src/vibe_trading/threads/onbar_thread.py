@@ -15,8 +15,13 @@ from vibe_trading.coordinator.trading_coordinator import (
 from vibe_trading.coordinator.thread_manager import ThreadManager, get_thread_manager
 from vibe_trading.agents.messaging import get_message_broker, MessageType
 from vibe_trading.websocket_manager import get_websocket_manager
+from vibe_trading.data_sources.binance_client import BinanceClient, KlineInterval
+from vibe_trading.config.binance_config import BinanceConfig, BinanceEnvironment
+from vibe_trading.config.settings import get_settings
+from pi_logger import get_logger, info
 
 logger = logging.getLogger(__name__)
+log = get_logger("OnBarThread")
 
 
 class OnBarThread:
@@ -97,15 +102,101 @@ class OnBarThread:
                 pass
         
         logger.info("OnBarThread stopped")
-    
+
+    async def _load_historical_klines_to_web(self, limit: int = 100) -> None:
+        """从 Binance API 获取历史K线并推送到 web server"""
+        try:
+            info(f"获取历史K线: {self.symbol} {self.interval} ({limit}根)", tag="OnBar")
+
+            # 使用实盘配置（获取真实市场数据，不需要API密钥）
+            config = BinanceConfig(environment=BinanceEnvironment.MAINNET)
+            client = BinanceClient(config)
+
+            # 获取 K线 interval 枚举
+            interval_map = {
+                "1m": KlineInterval.MINUTE_1,
+                "5m": KlineInterval.MINUTE_5,
+                "15m": KlineInterval.MINUTE_15,
+                "30m": KlineInterval.MINUTE_30,
+                "1h": KlineInterval.HOUR_1,
+                "4h": KlineInterval.HOUR_4,
+                "1d": KlineInterval.DAY_1,
+            }
+            kline_interval = interval_map.get(self.interval, KlineInterval.MINUTE_30)
+
+            # 获取历史K线（通过 rest 客户端）
+            raw_klines = await client.rest.get_klines(
+                symbol=self.symbol,
+                interval=kline_interval,
+                limit=limit,
+            )
+
+            if not raw_klines:
+                info(f"未获取到历史K线数据", tag="OnBar")
+                return
+
+            # 推送到 web server
+            from vibe_trading.web.server import send_kline, state
+
+            # 清空 web state 的旧数据
+            state.klines = []
+            state.current_symbol = self.symbol
+            state.current_interval = self.interval
+
+            # 推送每根K线
+            for raw in raw_klines:
+                open_time = raw[0]  # 开盘时间 (毫秒)
+                bar_time_iso = datetime.fromtimestamp(open_time / 1000).isoformat()
+
+                kline_data = {
+                    "time": bar_time_iso,
+                    "open_time_ms": int(open_time),
+                    "symbol": self.symbol,
+                    "interval": self.interval,
+                    "open": float(raw[1]),
+                    "high": float(raw[2]),
+                    "low": float(raw[3]),
+                    "close": float(raw[4]),
+                    "volume": float(raw[5]),
+                }
+
+                # 直接添加到 state（不通过 POST API）
+                state.klines.append(kline_data)
+
+            info(f"已加载 {len(state.klines)} 根历史K线到 web", tag="OnBar")
+
+            # 计算技术指标
+            from vibe_trading.web.server import calculate_indicators
+            await calculate_indicators()
+
+            # 通知前端刷新
+            from vibe_trading.web.server import ConnectionState
+            await state.send_update("init", {
+                "klines": state.klines,
+                "indicators": state.indicators,
+                "decisions": state.decisions,
+                "logs": state.logs[-100:],
+                "phase_status": state.phase_status,
+                "agent_reports": state.agent_reports,
+            })
+
+            # 关闭客户端
+            await client.close()
+
+        except Exception as e:
+            log.error(f"获取历史K线失败: {e}", exc_info=True)
+
     async def _run_loop(self) -> None:
         """Main loop for K-line processing"""
         try:
-            # Get WebSocket manager
+            # 获取历史K线数据并推送到 web（初始化显示）
+            await self._load_historical_klines_to_web()
+
+            # Get WebSocket manager - 使用实盘数据流（不需要API密钥）
             ws_manager = get_websocket_manager(
-                api_key=None,  # Paper trading mode
+                api_key=None,
                 api_secret=None,
-                testnet=True,
+                testnet=False,  # 实盘数据
             )
 
             # Subscribe to K-line stream
@@ -149,8 +240,12 @@ class OnBarThread:
         # 发送K线数据到Web (忽略错误，Web可能未启动)
         try:
             from vibe_trading.web.server import send_kline, send_log
+            bar_time_iso = datetime.fromtimestamp(kline.open_time / 1000).isoformat()
             await send_kline({
-                "time": datetime.now().isoformat(),
+                "time": bar_time_iso,
+                "open_time_ms": int(kline.open_time),
+                "symbol": self.symbol,
+                "interval": self.interval,
                 "open": float(kline.open),
                 "high": float(kline.high),
                 "low": float(kline.low),
@@ -163,14 +258,28 @@ class OnBarThread:
         try:
             # 发送日志到Web
             from vibe_trading.web.server import send_log, send_phase
-            await send_log("info", "OnBar", f"处理K线: {self.symbol} @ ${close_price:.2f}")
-            await send_phase("ANALYZING", "running")
+            await send_log(
+                "info",
+                "OnBar",
+                f"处理K线: {self.symbol} @ ${close_price:.2f}",
+                open_time_ms=int(kline.open_time),
+                symbol=self.symbol,
+                interval=self.interval,
+            )
+            await send_phase(
+                "ANALYZING",
+                "running",
+                open_time_ms=int(kline.open_time),
+                symbol=self.symbol,
+                interval=self.interval,
+            )
 
             # Execute full 5-phase decision flow with all 13 agents
             decision = await self._coordinator.analyze_and_decide(
                 current_price=close_price,
                 account_balance=10000.0,  # Would get from account
                 current_positions=[],  # Would get from position manager
+                bar_open_time_ms=int(kline.open_time),
             )
 
             self._decisions_made += 1
@@ -185,13 +294,29 @@ class OnBarThread:
                 from vibe_trading.web.server import send_decision
                 await send_decision({
                     "index": self._decisions_made,
-                    "time": datetime.now().isoformat(),
+                    "time": datetime.fromtimestamp(kline.open_time / 1000).isoformat(),
+                    "open_time_ms": int(kline.open_time),
+                    "symbol": self.symbol,
+                    "interval": self.interval,
                     "close": close_price,
                     "decision": decision.decision,
                     "rationale": decision.rationale,
                 })
-                await send_log("info", "Decision", f"决策: {decision.decision}")
-                await send_phase("COMPLETED", "completed")
+                await send_log(
+                    "info",
+                    "Decision",
+                    f"决策: {decision.decision}",
+                    open_time_ms=int(kline.open_time),
+                    symbol=self.symbol,
+                    interval=self.interval,
+                )
+                await send_phase(
+                    "COMPLETED",
+                    "completed",
+                    open_time_ms=int(kline.open_time),
+                    symbol=self.symbol,
+                    interval=self.interval,
+                )
             except Exception:
                 pass  # Web服务器未启动时忽略
 
@@ -219,7 +344,14 @@ class OnBarThread:
             # 发送错误日志到Web
             try:
                 from vibe_trading.web.server import send_log
-                await send_log("error", "OnBar", f"决策流程错误: {e}")
+                await send_log(
+                    "error",
+                    "OnBar",
+                    f"决策流程错误: {e}",
+                    open_time_ms=int(kline.open_time),
+                    symbol=self.symbol,
+                    interval=self.interval,
+                )
             except Exception:
                 pass
     

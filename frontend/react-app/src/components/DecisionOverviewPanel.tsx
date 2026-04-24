@@ -1,15 +1,29 @@
 import { formatCompact, formatPrice, formatTime } from '../lib/format';
-import type { DecisionData, KlineData } from '../types';
+import type { BarTrace, DecisionData, KlineData } from '../types';
 
 interface DecisionOverviewPanelProps {
   klines: KlineData[];
   decisions: DecisionData[];
+  selectedKline?: KlineData | null;
+  trace?: BarTrace | null;
 }
 
-export function DecisionOverviewPanel({ klines, decisions }: DecisionOverviewPanelProps) {
-  const current = klines[klines.length - 1];
-  const previous = klines[klines.length - 2];
-  const latestDecision = decisions[decisions.length - 1];
+export function DecisionOverviewPanel({ klines, decisions, selectedKline, trace }: DecisionOverviewPanelProps) {
+  const current = selectedKline ?? klines[klines.length - 1];
+  const currentOpenMs = current ? (current.open_time_ms ?? new Date(current.time).getTime()) : null;
+  const previous = currentOpenMs
+    ? klines.find((item) => {
+      const itemMs = item.open_time_ms ?? new Date(item.time).getTime();
+      return itemMs === currentOpenMs - 60 * 60 * 1000
+        || itemMs === currentOpenMs - 4 * 60 * 60 * 1000
+        || itemMs === currentOpenMs - 24 * 60 * 60 * 1000;
+    }) ?? klines[klines.length - 2]
+    : klines[klines.length - 2];
+  const latestDecision = trace?.decision ?? (
+    currentOpenMs
+      ? decisions.find((item) => (item.open_time_ms ?? new Date(item.time).getTime()) === currentOpenMs)
+      : decisions[decisions.length - 1]
+  );
   const recent = decisions.slice(-5).reverse();
 
   const delta = current && previous ? current.close - previous.close : 0;

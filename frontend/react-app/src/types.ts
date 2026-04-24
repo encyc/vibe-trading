@@ -2,6 +2,9 @@ export type DecisionAction = 'BUY' | 'SELL' | 'HOLD' | 'STRONG_BUY' | 'STRONG_SE
 
 export interface KlineData {
   time: string;
+  open_time_ms?: number;
+  symbol?: string;
+  interval?: string;
   open: number;
   high: number;
   low: number;
@@ -27,6 +30,9 @@ export interface IndicatorsData {
 export interface DecisionData {
   index: number;
   time: string;
+  open_time_ms?: number;
+  symbol?: string;
+  interval?: string;
   close: number;
   decision: DecisionAction;
   rationale: string;
@@ -37,6 +43,9 @@ export interface LogEntry {
   level: 'info' | 'warning' | 'error' | 'debug';
   tag: string;
   message: string;
+  open_time_ms?: number;
+  symbol?: string;
+  interval?: string;
 }
 
 export interface PhaseState {
@@ -143,6 +152,19 @@ export interface BacktestProgress {
   llm_cache_hits: number;
   cache_hit_rate: number;
   estimated_remaining_seconds?: number;
+}
+
+export interface BarTrace {
+  symbol: string;
+  interval: string;
+  open_time_ms: number;
+  bar_time: string;
+  kline: KlineData;
+  phase_status: PhaseStatus;
+  decision: DecisionData | null;
+  reports: Record<string, Record<string, string>>;
+  logs: LogEntry[];
+  updated_at: string;
 }
 
 export const EMPTY_INDICATORS: IndicatorsData = {

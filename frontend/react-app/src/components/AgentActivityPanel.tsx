@@ -1,9 +1,10 @@
-import type { LogEntry, PhaseStatus } from '../types';
+import type { BarTrace, LogEntry, PhaseStatus } from '../types';
 
 interface AgentActivityPanelProps {
   phaseStatus: PhaseStatus;
   agentReports: Record<string, Record<string, string>>;
   logs: LogEntry[];
+  trace?: BarTrace | null;
 }
 
 interface AgentCard {
@@ -99,28 +100,38 @@ function pickAgentLog(logs: LogEntry[], aliases: string[]): string | null {
 }
 
 function phaseStateLabel(phaseStatus: PhaseStatus, phaseKey: string): string {
-  const state = phaseStatus[phaseKey.toUpperCase()];
+  const phaseToStatusKey: Record<string, string> = {
+    analysts: 'ANALYZING',
+    researchers: 'DEBATING',
+    risk: 'ASSESSING_RISK',
+    trader: 'PLANNING',
+    pm: 'COMPLETED',
+  };
+  const state = phaseStatus[phaseToStatusKey[phaseKey] ?? phaseKey.toUpperCase()];
   if (typeof state === 'string' || !state) {
     return 'pending';
   }
   return state.status;
 }
 
-export function AgentActivityPanel({ phaseStatus, agentReports, logs }: AgentActivityPanelProps) {
-  const currentPhase = phaseMap[phaseStatus.current || ''] ?? '';
+export function AgentActivityPanel({ phaseStatus, agentReports, logs, trace }: AgentActivityPanelProps) {
+  const effectivePhaseStatus = trace?.phase_status ?? phaseStatus;
+  const effectiveReports = trace?.reports ?? agentReports;
+  const effectiveLogs = trace?.logs ?? logs;
+  const currentPhase = phaseMap[effectivePhaseStatus.current || ''] ?? '';
 
   return (
     <section className="panel agent-activity-panel">
       <div className="panel-head">
         <h2>Agent Monitor</h2>
-        <span>{phaseStatus.current || 'IDLE'}</span>
+        <span>{effectivePhaseStatus.current || 'IDLE'}</span>
       </div>
 
       <div className="agent-phase-list">
         {PHASES.map((phase) => {
-          const phaseBucket = agentReports[phase.key];
+          const phaseBucket = effectiveReports[phase.key];
           const active = phase.key === currentPhase;
-          const phaseState = phaseStateLabel(phaseStatus, phase.key);
+          const phaseState = phaseStateLabel(effectivePhaseStatus, phase.key);
 
           return (
             <article key={phase.key} className={`agent-phase ${active ? 'active' : ''}`}>
@@ -132,7 +143,7 @@ export function AgentActivityPanel({ phaseStatus, agentReports, logs }: AgentAct
               <div className="agent-cards">
                 {phase.agents.map((agent) => {
                   const report = pickReport(phaseBucket, agent.aliases);
-                  const logHint = pickAgentLog(logs, agent.aliases);
+                  const logHint = pickAgentLog(effectiveLogs, agent.aliases);
                   const content = report || logHint || 'Waiting for this agent output...';
 
                   return (

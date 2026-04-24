@@ -317,6 +317,7 @@ class TradingCoordinator:
         current_price: float,
         account_balance: float = 10000.0,
         current_positions: Optional[List[Dict]] = None,
+        bar_open_time_ms: Optional[int] = None,
     ) -> TradingDecision:
         """
         执行完整的分析和决策流程
@@ -389,7 +390,14 @@ class TradingCoordinator:
         try:
             from vibe_trading.web.server import send_report
             for role, report in analyst_reports.items():
-                await send_report(role, report, "analysts")
+                await send_report(
+                    role,
+                    report,
+                    "analysts",
+                    open_time_ms=bar_open_time_ms,
+                    symbol=self.symbol,
+                    interval=self.interval,
+                )
         except Exception:
             pass  # Web 未启用时忽略
 
@@ -428,7 +436,14 @@ class TradingCoordinator:
         # 推送投资计划到 Web
         try:
             from vibe_trading.web.server import send_report
-            await send_report("Research Manager", investment_plan, "researchers")
+            await send_report(
+                "Research Manager",
+                investment_plan,
+                "researchers",
+                open_time_ms=bar_open_time_ms,
+                symbol=self.symbol,
+                interval=self.interval,
+            )
         except Exception:
             pass
 
@@ -473,7 +488,14 @@ class TradingCoordinator:
             from vibe_trading.web.server import send_report
             for role, assessment in risk_assessment.items():
                 if role != "error":
-                    await send_report(role.capitalize(), assessment, "risk")
+                    await send_report(
+                        role.capitalize(),
+                        assessment,
+                        "risk",
+                        open_time_ms=bar_open_time_ms,
+                        symbol=self.symbol,
+                        interval=self.interval,
+                    )
         except Exception:
             pass
 
@@ -519,7 +541,14 @@ class TradingCoordinator:
         # 推送交易方案到 Web
         try:
             from vibe_trading.web.server import send_report
-            await send_report("Trader", trading_plan, "trader")
+            await send_report(
+                "Trader",
+                trading_plan_display,
+                "trader",
+                open_time_ms=bar_open_time_ms,
+                symbol=self.symbol,
+                interval=self.interval,
+            )
         except Exception:
             pass
 
@@ -566,7 +595,14 @@ class TradingCoordinator:
         try:
             from vibe_trading.web.server import send_report
             decision_text = f"决策: {final_decision.get('decision', 'HOLD')}\n\n理由:\n{final_decision.get('rationale', '')}"
-            await send_report("Portfolio Manager", decision_text, "pm")
+            await send_report(
+                "Portfolio Manager",
+                decision_text,
+                "pm",
+                open_time_ms=bar_open_time_ms,
+                symbol=self.symbol,
+                interval=self.interval,
+            )
         except Exception:
             pass
 
@@ -601,8 +637,10 @@ class TradingCoordinator:
                    f"(置信度: {processed_signal.confidence:.2f}, 强度: {processed_signal.strength.value})")
 
         # 2. 计算Agent贡献度
+        # 转换 trading_plan 为字符串（可能是 TradingPlan 对象）
+        trading_plan_str = str(trading_plan) if trading_plan else ""
         agent_contributions = self._calculate_agent_contributions(
-            analyst_reports, investment_plan, risk_assessment, final_decision
+            analyst_reports, investment_plan, trading_plan_str, risk_assessment
         )
 
         # 3. 确定市场状态
@@ -1028,7 +1066,7 @@ class TradingCoordinator:
         if not self._portfolio_manager:
             return {"decision": "HOLD", "rationale": "Portfolio manager not enabled"}
 
-        decision_text = await self._portfolio_manager.make_final_decision(
+        pm_response = await self._portfolio_manager.make_final_decision(
             analyst_reports=analyst_reports,
             investment_plan=investment_plan,
             trading_plan=trading_plan,
@@ -1037,6 +1075,9 @@ class TradingCoordinator:
             account_balance=account_balance,
             current_price=context.current_price,
         )
+
+        # 从响应中提取决策文本
+        decision_text = pm_response.get("decision_text", "") if isinstance(pm_response, dict) else str(pm_response)
 
         # 解析决策文本
         # 这里可以添加更复杂的解析逻辑
@@ -1220,7 +1261,8 @@ class TradingCoordinator:
 
         # 研究员贡献（基于投资决策采纳度）
         investment_keywords = ["buy", "sell", "long", "short", "做多", "做空"]
-        investment_lower = investment_plan.lower()
+        investment_str = str(investment_plan) if investment_plan else ""
+        investment_lower = investment_str.lower()
         for keyword in investment_keywords:
             if keyword in investment_lower:
                 contributions["Research Manager"] = contributions.get("Research Manager", 0) + 0.3
@@ -1228,7 +1270,8 @@ class TradingCoordinator:
 
         # 交易员贡献
         trader_keywords = ["execution", "entry", "exit", "order"]
-        trader_lower = trading_plan.lower()
+        trader_str = str(trading_plan) if trading_plan else ""
+        trader_lower = trader_str.lower()
         for keyword in trader_keywords:
             if keyword in trader_lower:
                 contributions["Trader"] = contributions.get("Trader", 0) + 0.3

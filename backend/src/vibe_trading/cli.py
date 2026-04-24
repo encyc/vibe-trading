@@ -37,15 +37,20 @@ class TradingMode(str, Enum):
     LIVE = "live"    # 实盘交易
 
 
-async def run_web_server(port: int = 8000) -> None:
+async def run_web_server(port: int = 8000, symbol: str = "BTCUSDT", interval: str = "30m") -> None:
     """
     在后台运行 Web 服务器
 
     Args:
         port: Web 服务器端口
+        symbol: 交易对符号
+        interval: K线周期
     """
     import uvicorn
-    from vibe_trading.web.server import app
+    from vibe_trading.web.server import app, set_initial_config
+
+    # 在启动前设置配置
+    set_initial_config(symbol, interval)
 
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
@@ -214,7 +219,7 @@ async def run_multi_thread_system(
         # 启动 Web 服务器（如果启用）
         if enable_web:
             info(f"启动 Web 监控界面: http://localhost:{web_port}", tag="WEB")
-            web_server_task = asyncio.create_task(run_web_server(web_port))
+            web_server_task = asyncio.create_task(run_web_server(web_port, symbol, interval))
 
         # 运行系统
         await system.run()

@@ -443,7 +443,7 @@ class PortfolioManagerAgent:
         return {
             "scorecard": scorecard,
             "decision_text": decision_text,
-            "execution_plan": trading_plan if trading_plan.position_size_usdt > 0 else None,
+            "execution_plan": trading_plan if trading_plan.total_position_usdt > 0 else None,
         }
 
     def _build_decision_prompt(
@@ -458,6 +458,16 @@ class PortfolioManagerAgent:
         current_price: float,
     ) -> str:
         """构建决策提示"""
+        # TradingPlan currently stores execution details in order lists.
+        first_entry = trading_plan.entry_orders[0] if trading_plan.entry_orders else {}
+        first_stop = trading_plan.stop_loss_orders[0] if trading_plan.stop_loss_orders else {}
+        first_tp = trading_plan.take_profit_orders[0] if trading_plan.take_profit_orders else {}
+
+        entry_type = first_entry.get("order_type", "N/A")
+        entry_price = first_entry.get("price", current_price)
+        stop_loss_price = first_stop.get("trigger_price", "N/A")
+        take_profit_price = first_tp.get("price", "N/A")
+
         prompt = f"""As the Portfolio Manager, please make the final trading decision for {self._tool_context.symbol}.
 
 QUANTITATIVE DECISION SCORECARD:
@@ -486,10 +496,10 @@ Supporting Factors:
         prompt += f"""
 PROPOSED TRADING PLAN:
 Direction: {trading_plan.direction}
-Entry: {trading_plan.entry_type.value} @ {trading_plan.entry_price}
-Position: {trading_plan.position_size_usdt} USDT ({trading_plan.position_size_coin:.6f} coins)
-Stop Loss: {trading_plan.stop_loss_price}
-Take Profit: {trading_plan.target_price}
+Entry: {entry_type} @ {entry_price}
+Position: {trading_plan.total_position_usdt} USDT ({trading_plan.total_position_coin:.6f} coins)
+Stop Loss: {stop_loss_price}
+Take Profit: {take_profit_price}
 Leverage: {trading_plan.leverage}x
 R:R Ratio: {trading_plan.risk_reward_ratio}:1
 

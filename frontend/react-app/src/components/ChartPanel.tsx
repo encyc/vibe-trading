@@ -5,9 +5,11 @@ import {
   LineSeries,
   createChart,
   createSeriesMarkers,
+  type MouseEventParams,
   type IChartApi,
   type ISeriesApi,
   type LineData,
+  type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
 import type { DecisionData, IndicatorsData, KlineData } from '../types';
@@ -16,13 +18,14 @@ interface ChartPanelProps {
   klines: KlineData[];
   indicators: IndicatorsData;
   decisions: DecisionData[];
+  onBarSelect?: (kline: KlineData) => void;
 }
 
 function toTimestamp(input: string): UTCTimestamp {
   return Math.floor(new Date(input).getTime() / 1000) as UTCTimestamp;
 }
 
-export function ChartPanel({ klines, indicators, decisions }: ChartPanelProps) {
+export function ChartPanel({ klines, indicators, decisions, onBarSelect }: ChartPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -110,6 +113,35 @@ export function ChartPanel({ klines, indicators, decisions }: ChartPanelProps) {
   }, []);
 
   useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !onBarSelect || !klines.length) {
+      return;
+    }
+
+    const handleClick = (param: MouseEventParams<Time>) => {
+      if (!param.time) {
+        return;
+      }
+
+      const timestampSeconds = Number(param.time);
+      const timestampMs = timestampSeconds * 1000;
+      const selected = klines.find((item) => {
+        const openMs = item.open_time_ms ?? new Date(item.time).getTime();
+        return openMs === timestampMs;
+      });
+
+      if (selected) {
+        onBarSelect(selected);
+      }
+    };
+
+    chart.subscribeClick(handleClick);
+    return () => {
+      chart.unsubscribeClick(handleClick);
+    };
+  }, [klines, onBarSelect]);
+
+  useEffect(() => {
     const candleSeries = candleRef.current;
     const sma20Series = sma20Ref.current;
     const sma50Series = sma50Ref.current;
@@ -136,7 +168,10 @@ export function ChartPanel({ klines, indicators, decisions }: ChartPanelProps) {
       })),
     );
 
-    const makeLineData = (values: Array<number | null>): LineData<UTCTimestamp>[] => {
+    const makeLineData = (values: Array<number | null> | undefined): LineData<UTCTimestamp>[] => {
+      if (!values || !values.length) {
+        return [];
+      }
       const result: LineData<UTCTimestamp>[] = [];
       for (let i = 0; i < values.length; i += 1) {
         const value = values[i];

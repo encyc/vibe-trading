@@ -6,7 +6,9 @@ import { DecisionOverviewPanel } from './components/DecisionOverviewPanel';
 import { LogsPanel } from './components/LogsPanel';
 import { SideToolbar } from './components/SideToolbar';
 import { TopBar } from './components/TopBar';
+import { getBarTrace } from './services/api';
 import { useTradingFeed } from './hooks/useTradingFeed';
+import type { BarTrace, KlineData } from './types';
 
 const SYMBOL = 'BTCUSDT';
 type PanelKey = 'agent' | 'decision' | 'logs';
@@ -24,6 +26,8 @@ function App() {
   const [mainSplit, setMainSplit] = useState(58);
   const [draggingPanel, setDraggingPanel] = useState<PanelKey | null>(null);
   const [dragOverPanel, setDragOverPanel] = useState<PanelKey | null>(null);
+  const [selectedKline, setSelectedKline] = useState<KlineData | null>(null);
+  const [selectedBarTrace, setSelectedBarTrace] = useState<BarTrace | null>(null);
 
   const controlZoneRef = useRef<HTMLElement | null>(null);
 
@@ -80,6 +84,57 @@ function App() {
     window.localStorage.setItem(SPLIT_STORAGE_KEY, String(mainSplit));
   }, [mainSplit]);
 
+  useEffect(() => {
+    if (!snapshot.klines.length) {
+      setSelectedKline(null);
+      setSelectedBarTrace(null);
+      return;
+    }
+
+    if (!selectedKline) {
+      setSelectedKline(snapshot.klines[snapshot.klines.length - 1]);
+      return;
+    }
+
+    const selectedMs = selectedKline.open_time_ms ?? new Date(selectedKline.time).getTime();
+    const stillExists = snapshot.klines.some((item) => (item.open_time_ms ?? new Date(item.time).getTime()) === selectedMs);
+    if (!stillExists) {
+      setSelectedKline(snapshot.klines[snapshot.klines.length - 1]);
+    }
+  }, [selectedKline, snapshot.klines]);
+
+  useEffect(() => {
+    if (!selectedKline) {
+      setSelectedBarTrace(null);
+      return;
+    }
+
+    const openTimeMs = selectedKline.open_time_ms ?? new Date(selectedKline.time).getTime();
+    const symbol = selectedKline.symbol ?? SYMBOL;
+    const interval = selectedKline.interval ?? '30m';
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const trace = await getBarTrace(openTimeMs, symbol, interval);
+        if (!cancelled) {
+          setSelectedBarTrace(trace);
+        }
+      } catch {
+        if (!cancelled) {
+          setSelectedBarTrace(null);
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedKline]);
+
   const panelContent = useMemo(
     () => ({
       agent: (
@@ -87,17 +142,28 @@ function App() {
           phaseStatus={snapshot.phaseStatus}
           agentReports={snapshot.agentReports}
           logs={snapshot.logs}
+          trace={selectedBarTrace}
         />
       ),
       decision: (
         <DecisionOverviewPanel
           klines={snapshot.klines}
           decisions={snapshot.decisions}
+          selectedKline={selectedKline}
+          trace={selectedBarTrace}
         />
       ),
-      logs: <LogsPanel logs={snapshot.logs} />,
+      logs: <LogsPanel logs={selectedBarTrace?.logs ?? snapshot.logs} />,
     }),
-    [snapshot.agentReports, snapshot.decisions, snapshot.klines, snapshot.logs, snapshot.phaseStatus],
+    [
+      selectedBarTrace,
+      selectedKline,
+      snapshot.agentReports,
+      snapshot.decisions,
+      snapshot.klines,
+      snapshot.logs,
+      snapshot.phaseStatus,
+    ],
   );
 
   const movePanel = (from: PanelKey, to: PanelKey) => {
@@ -223,6 +289,7 @@ function App() {
                 klines={snapshot.klines}
                 indicators={snapshot.indicators}
                 decisions={snapshot.decisions}
+                onBarSelect={setSelectedKline}
               />
             </div>
 
