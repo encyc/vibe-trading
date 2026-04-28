@@ -529,6 +529,75 @@ button {
   border-top: 1px solid var(--muted-line);
 }
 
+.markdown-text {
+  display: grid;
+  gap: 6px;
+}
+
+.markdown-text h4,
+.markdown-text h5,
+.markdown-text h6,
+.markdown-text p {
+  margin: 0;
+}
+
+.markdown-text h4,
+.markdown-text h5,
+.markdown-text h6 {
+  color: var(--ink);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.markdown-text p {
+  line-height: 1.45;
+}
+
+.markdown-text strong {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.markdown-text code {
+  border: 1px solid var(--muted-line);
+  background: var(--paper-2);
+  color: var(--ink);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  padding: 1px 3px;
+}
+
+.markdown-text pre {
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 8px;
+}
+
+.markdown-text pre code {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  white-space: pre;
+}
+
+.markdown-text ul,
+.markdown-text ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.markdown-text li {
+  margin: 3px 0;
+  line-height: 1.42;
+}
+
 .decision-overview-body {
   overflow: auto;
   padding: 8px;

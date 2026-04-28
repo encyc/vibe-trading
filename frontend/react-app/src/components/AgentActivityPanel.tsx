@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { MarkdownText } from './MarkdownText';
 import type { BarTrace, LogEntry, PhaseStatus } from '../types';
 
 interface AgentActivityPanelProps {
@@ -163,7 +164,9 @@ export function AgentActivityPanel({ phaseStatus, agentReports, logs, trace }: A
                       onClick={() => setExpandedAgent((current) => (current === cardKey ? null : cardKey))}
                     >
                       <span className="agent-name">{agent.label}</span>
-                      <p className="agent-content">{content}</p>
+                      <div className="agent-content">
+                        <MarkdownText content={content} />
+                      </div>
                     </button>
                   );
                 })}
