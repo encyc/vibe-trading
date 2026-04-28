@@ -42,7 +42,6 @@ export default withMermaid(defineConfig({
         text: '使用指南',
         items: [
           { text: 'Web监控', link: '/guide/monitoring' },
-          { text: '回测系统', link: '/guide/backtest' },
           { text: '数据提供者', link: '/guide/data-provider' },
           { text: '配置说明', link: '/guide/configuration' }
         ]
@@ -60,14 +59,6 @@ export default withMermaid(defineConfig({
         text: '开发指南',
         items: [
           { text: 'pi_agent_core框架', link: '/pi_agent_core' },
-          { text: '参与贡献', link: '/develop/contributing' },
-          { text: '开发路线图', link: '/develop/roadmap' },
-          { text: '版本变更记录', link: '/develop/changelog' }
-        ]
-      },
-      {
-        text: '开发指南',
-        items: [
           { text: '参与贡献', link: '/develop/contributing' },
           { text: '开发路线图', link: '/develop/roadmap' },
           { text: '版本变更记录', link: '/develop/changelog' }

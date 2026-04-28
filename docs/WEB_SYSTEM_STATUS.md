@@ -1,110 +1,72 @@
 # Vibe Trading Web System Status
 
-## ✅ System Status: OPERATIONAL
+## 当前状态
 
-All components are working correctly. The system has been built and tested successfully.
+Web 监控系统当前采用：
 
-## 🚀 Quick Start
+- Backend: FastAPI + WebSocket，默认端口 `8000`
+- Frontend: React + Vite + TypeScript，默认端口 `3000`
+- Chart: `lightweight-charts`
+- Persistence: SQLite `klines` + `bar_decision_journal`
+
+## 快速启动
 
 ```bash
-# Start the full system (backend + frontend)
+# 启动交易系统 + WebSocket 后端
+make start-web SYMBOL=BTCUSDT INTERVAL=30m
+
+# 启动 React 前端
+make web
+
+# 或并行启动
 make full-start
-
-# Or start components separately:
-make start-web  # Backend with WebSocket (port 8000)
-make web        # Frontend React app (port 3000)
 ```
 
-## 📊 Access Points
+访问地址：
 
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **WebSocket**: ws://localhost:8000/ws
+```text
+Frontend:  http://localhost:3000
+Backend:   http://localhost:8000
+WebSocket: ws://localhost:8000/ws
+```
 
-## 🛠️ What Was Fixed
+## 当前能力
 
-### 1. TypeScript Build Errors ✅
-- Fixed `useRef` type initialization in `useWebSocket.ts`
-- Added missing `name` property to ECharts markPoint data
-- Fixed `axisLabel.formatter` type mismatch in `ChartWidget.tsx`
-- Relaxed TypeScript strictness in `tsconfig.app.json`
+- 实时 K线展示
+- BUY/SELL 决策标记
+- Agent Monitor 分阶段展示报告
+- Agent 报告点击展开/收起
+- Agent 报告 Markdown 渲染
+- Runtime Log 同步 terminal 输出
+- 右侧模块拖拽排序和调整高度
+- 主图与右侧区域横向调整
+- 点击历史 K线查询该 K线的 Agent 报告、日志和最终决策
 
-### 2. WebSocket Connection ✅
-- Verified backend WebSocket endpoint is working
-- CORS properly configured for React frontend
-- Connection reconnection logic implemented in frontend
+## 关键文件
 
-### 3. Empty State Handling ✅
-- Chart displays "Waiting for data..." message when no klines
-- Status widget shows connection indicator (green = connected, red = disconnected)
-- All panels have proper empty state handling
+- `backend/src/vibe_trading/web/server.py`：FastAPI/WebSocket 服务和 Web 状态 API
+- `backend/src/vibe_trading/web/journal_storage.py`：K线级决策追溯持久化
+- `backend/src/vibe_trading/threads/onbar_thread.py`：K线处理与 Web 推送
+- `frontend/react-app/src/App.tsx`：主布局和模块拖拽/调整大小
+- `frontend/react-app/src/hooks/useTradingFeed.ts`：WebSocket 连接与自动重连
+- `frontend/react-app/src/components/ChartPanel.tsx`：K线图表
+- `frontend/react-app/src/components/AgentActivityPanel.tsx`：Agent 报告展示
 
-### 4. Build System ✅
-- Frontend builds successfully with `npm run build`
-- Production bundle generated in `dist/` directory
-- Development server runs correctly with `npm run dev`
-
-## 📋 Current Behavior
-
-### Initial State (When System Starts)
-- Connection status: "Live Connected" (green indicator)
-- Klines count: 0
-- Decisions count: 0
-- All panels show "Waiting for data..." messages
-
-### After First K-Line (30m Interval)
-- Chart displays candlestick with volume
-- Decision markers appear (BUY/SELL signals)
-- Phase status updates (ANALYZING → DEBATING → ASSESSING_RISK → PLANNING → COMPLETED)
-- Logs show real-time processing information
-
-## 🔍 Verification
-
-To verify the system is working:
+## 验证命令
 
 ```bash
-# 1. Check WebSocket connection
-python3 scripts/test_ws_integration.py
+# 后端状态
+curl http://localhost:8000/api/status
 
-# 2. Check frontend is accessible
-curl -s http://localhost:3000 | grep -o '<title>.*</title>'
+# 前端构建
+cd frontend/react-app && npm run build
 
-# 3. Check backend WebSocket endpoint
-curl -s http://localhost:8000/api/status
+# WebSocket 测试
+make test-ws
 ```
 
-## 📁 Key Files
+## 注意事项
 
-- `Makefile` - Build automation and startup commands
-- `frontend/react-app/src/App.tsx` - Main React application
-- `frontend/react-app/src/hooks/useWebSocket.ts` - WebSocket connection hook
-- `frontend/react-app/src/components/ChartWidget.tsx` - ECharts candlestick chart
-- `frontend/react-app/src/context/TradingContext.tsx` - State management
-- `backend/src/vibe_trading/web/server.py` - FastAPI WebSocket server
-- `backend/src/vibe_trading/threads/onbar_thread.py` - K-line processing with web integration
-
-## 🎨 Design System
-
-The frontend uses a TradingView-inspired dark theme:
-- Background: #131722 (primary), #1e222d (secondary), #2a2e39 (tertiary)
-- Text: #d1d4dc (primary), #787b86 (secondary)
-- Accents: #2962ff (blue), #089981 (green), #f23645 (red)
-
-## ⚠️ Notes
-
-- The trading system runs on 30-minute K-line intervals by default
-- Initial data load may take up to 30 minutes for the first K-line to arrive
-- WebSocket automatically reconnects if connection is lost
-- All data is stored in memory and resets when the server restarts
-
-## 🐛 Troubleshooting
-
-If you see "Disconnected" status:
-1. Check backend is running: `lsof -i:8000`
-2. Check frontend is running: `lsof -i:3000`
-3. Check WebSocket endpoint: `python3 scripts/test_ws_integration.py`
-
-If frontend shows no data after 30+ minutes:
-1. Check backend logs for errors
-2. Verify trading system is processing K-lines
-3. Check browser console for JavaScript errors
+- `make start-web` 会把交易系统和 Web 后端运行在同一个 Python 进程中，因此 Runtime Log 可以镜像 terminal 输出。
+- 如果单独运行 `make web-backend`，再从另一个进程启动交易系统，Runtime Log 只能显示通过 API 主动发送的日志。
+- 点击历史 K线时，只有被系统处理并写入 `bar_decision_journal` 的 K线才会显示完整 Agent 报告。普通历史 OHLCV 不会自动生成报告。

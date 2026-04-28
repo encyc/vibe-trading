@@ -340,9 +340,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 # 处理心跳
                 if data == "ping":
                     await websocket.send_text("pong")
-                    logger.debug("Received ping, sent pong")
                 elif data == "pong":
-                    logger.debug("Received pong")
+                    pass
                     
             except asyncio.TimeoutError:
                 # 超时错误 - 忽略，让连接保持

@@ -9,7 +9,8 @@ Vibe Trading 采用模块化、异步的三层架构：
 ```mermaid
 graph TB
     subgraph Web["🖥️ Web 层"]
-        Monitor[Web Monitor<br/>Vue.js 量子指挥塔界面]
+        Monitor[React Web Monitor<br/>Agent Arena界面]
+        Journal[Bar Decision Journal<br/>K线级追溯]
     end
 
     subgraph Coord["⚙️ 协调层"]
@@ -54,7 +55,8 @@ graph TB
         Tools[技术指标库<br/>20+ 指标]
     end
 
-    Monitor <--WebSocket--> Coordinator
+    Monitor <--WebSocket/REST--> Coordinator
+    Monitor --> Journal
     Coordinator <--协调--> Macro
     Coordinator <--协调--> OnBar
     Coordinator <--协调--> Event
@@ -69,6 +71,7 @@ graph TB
 
     Decision --> Trader
     Decision --> PM
+    Decision --> Journal
 
     Binance --> Macro
     Binance --> OnBar
@@ -248,11 +251,11 @@ class TradingCoordinator:
 
 | 组件 | 技术选型 | 说明 |
 |------|---------|------|
-| 框架 | Vue.js | 现代前端框架 |
-| 布局库 | GridStack.js | 可拖拽仪表板 |
-| 图表库 | ECharts | 专业数据可视化 |
-| 样式 | Tailwind CSS | 实用优先的CSS框架 |
-| 字体 | Orbitron/Rajdhani | 科技感字体 |
+| 框架 | React + Vite + TypeScript | 实时监控前端 |
+| 图表库 | lightweight-charts | 专业K线图表 |
+| 布局 | CSS Grid + 原生拖拽/resize | 右侧模块可拖拽和调整大小 |
+| 样式 | CSS Variables | nof1.ai 风格白底黑线信息面板 |
+| 状态 | WebSocket + REST | 实时推送与历史K线追溯查询 |
 
 ## 数据流
 

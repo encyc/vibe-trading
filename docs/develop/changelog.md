@@ -12,14 +12,21 @@
 - 智能辩论系统
 - BM25 记忆系统
 - Paper Trading 模式
-- 基础回测系统
 - Web 监控界面
+- K线级决策追溯
+- Agent 报告展开阅读和 Markdown 渲染
+- Runtime Log 同步 terminal 输出
 
 ### 变更
+
+- Web 前端改为 React + Vite + lightweight-charts
+- Makefile 支持通过 `SYMBOL` 和 `INTERVAL` 变量启动不同交易对和K线周期
 
 ### 修复
 
 ### 移除
+
+- 移除旧回测 Web 文档入口，当前文档聚焦实盘 Paper Trading 监控
 
 ---
 

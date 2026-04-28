@@ -119,23 +119,31 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 复制示例配置文件：
 
 ```bash
-cp backend/.env.example backend/.env
+cp .env.example .env
 ```
 
-编辑 `backend/.env` 文件，配置以下内容：
+编辑项目根目录的 `.env` 文件，配置以下内容：
 
 ```env
-# Binance API 配置
-BINANCE_API_KEY=your_api_key_here
-BINANCE_API_SECRET=your_api_secret_here
+# 交易模式与周期
+TRADING_MODE=paper
+SYMBOLS=BTCUSDT,ETHUSDT
+INTERVAL=30m
 
-# LLM 配置
-LLM_PROVIDER=openai  # 或 anthropic, azure, 本地模型
-LLM_API_KEY=your_llm_api_key_here
-LLM_MODEL=gpt-4
+# Binance API 配置：Paper Trading 默认使用测试网
+BINANCE_TESTNET_API_KEY=your_testnet_api_key_here
+BINANCE_TESTNET_API_SECRET=your_testnet_api_secret_here
+
+# Live Trading 才需要主网 key
+BINANCE_API_KEY=your_mainnet_api_key_here
+BINANCE_API_SECRET=your_mainnet_api_secret_here
+
+# LLM 配置：名称对应 backend/src/pi_ai/llm.yaml
+LLM_MODEL=glm_4_7
+OPENAI_API_KEY=your_openai_api_key_here
 
 # 数据库配置
-DATABASE_URL=sqlite:///vibe_trading.db
+DATABASE_URL=sqlite+aiosqlite:///./vibe_trading.db
 
 # 日志配置
 LOG_LEVEL=INFO
@@ -146,11 +154,12 @@ LOG_LEVEL=INFO
 - **OpenAI API**：访问 [platform.openai.com](https://platform.openai.com/api-keys) 获取API密钥
 :::
 
-### 步骤四：初始化数据库
+### 步骤四：安装前端依赖
 
 ```bash
-cd backend
-PYTHONPATH=src uv run --from vibe_trading.cli vibe-trade init-db
+cd ../frontend/react-app
+npm install
+cd ../..
 ```
 
 ## 运行系统
@@ -162,7 +171,7 @@ PYTHONPATH=src uv run --from vibe_trading.cli vibe-trade init-db
 cd ..
 
 # 启动 Paper Trading
-PYTHONPATH=backend/src uv run -- vibe-trade start BTCUSDT --interval 5m --mode paper
+make start SYMBOL=BTCUSDT INTERVAL=5m
 ```
 
 ### 实盘交易模式
@@ -181,14 +190,17 @@ PYTHONPATH=backend/src uv run -- vibe-trade start BTCUSDT --interval 5m --mode l
 
 ## 启动 Web 监控界面
 
-在另一个终端窗口中：
+推荐使用两个终端分别启动后端交易系统和 React 前端：
 
 ```bash
-cd backend
-PYTHONPATH=src uv run uvicorn vibe_trading.web.server:app --host 0.0.0.0 --port 8000 --reload
+# 终端 1：启动交易系统 + WebSocket 后端
+make start-web SYMBOL=BTCUSDT INTERVAL=5m
+
+# 终端 2：启动 React 前端
+make web
 ```
 
-然后在浏览器中访问 `http://localhost:8000` 即可查看实时监控界面。
+然后在浏览器中访问 `http://localhost:3000` 查看实时监控界面。后端 API 和 WebSocket 默认运行在 `http://localhost:8000`。
 
 ### 使用 Prime Agent 模式
 
@@ -226,31 +238,29 @@ uv pip install -e .
 </details>
 
 <details>
-<summary><strong>数据库初始化失败</strong></summary>
+<summary><strong>数据库文件异常</strong></summary>
+
+当前 SQLite 表会在系统启动时自动初始化。如果本地测试库损坏，可以先停止服务，再删除旧库让系统重建：
 
 ```bash
-# 删除旧数据库重新初始化
-rm backend/vibe_trading.db
-PYTHONPATH=backend/src uv run --from vibe_trading.cli vibe-trade init-db
+rm vibe_trading.db
+make start SYMBOL=BTCUSDT INTERVAL=30m
 ```
 </details>
 
 <details>
 <summary><strong>LLM API 调用失败</strong></summary>
 
-检查 `.env` 文件中的 API Key 配置是否正确，或尝试使用其他 LLM 提供商：
+检查 `.env` 文件中的 API Key 配置是否正确，或切换到 `backend/src/pi_ai/llm.yaml` 中已有的模型配置：
 
 ```env
-# 使用 Anthropic
-LLM_PROVIDER=anthropic
-LLM_API_KEY=your_anthropic_key
-LLM_MODEL=claude-3-opus-20240229
+# 选择 llm.yaml 中存在的配置
+LLM_MODEL=glm_4_7
 
-# 使用本地模型（如 Ollama）
-LLM_PROVIDER=openai
-LLM_API_KEY=not-needed
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_MODEL=llama2
+# 按该模型配置需要设置对应 API Key
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
+GOOGLE_API_KEY=your_google_key
 ```
 </details>
 
@@ -266,4 +276,4 @@ LLM_MODEL=llama2
 - 了解 [项目简介](/guide/intro)：了解整体定位、技术栈与核心能力
 - 查看 [Agent团队](/guide/agents)：了解12个专业Agent的职责和功能
 - 阅读 [系统架构](/guide/architecture)：深入了解三线程架构与Agent协作流程
-- 配置 [Web监控](/guide/monitoring)：自定义量子指挥塔风格的实时监控界面
+- 配置 [Web监控](/guide/monitoring)：使用 Agent Arena 界面查看实时决策和历史K线追溯
