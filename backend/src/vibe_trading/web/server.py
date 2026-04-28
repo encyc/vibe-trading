@@ -5,9 +5,10 @@ Vibe Trading Web Server
 """
 import asyncio
 import json
+import sys
+import threading
 from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional, TextIO
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 import uvicorn
 
 from pi_logger import get_logger
+from pi_logger.colors import strip_ansi
 from vibe_trading.data_sources.kline_storage import KlineStorage, KlineQuery
 from vibe_trading.data_sources.technical_indicators import TechnicalIndicators
 from vibe_trading.web.journal_storage import DecisionJournalStorage
@@ -84,15 +86,113 @@ class ConnectionState:
 
 state = ConnectionState()
 
+_original_stdout: Optional[TextIO] = None
+_original_stderr: Optional[TextIO] = None
+_terminal_mirror_installed = False
+_terminal_mirror_lock = threading.Lock()
+
+
+class WebLogStream:
+    """Mirror terminal output into the in-process web runtime log."""
+
+    def __init__(self, wrapped: TextIO, level: str):
+        self.wrapped = wrapped
+        self.level = level
+        self._buffer = ""
+
+    def write(self, text: str) -> int:
+        written = self.wrapped.write(text)
+        self._buffer += text
+
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            emit_terminal_log(line, self.level)
+
+        return written
+
+    def flush(self) -> None:
+        self.wrapped.flush()
+
+    def isatty(self) -> bool:
+        return self.wrapped.isatty()
+
+    def fileno(self) -> int:
+        return self.wrapped.fileno()
+
+    @property
+    def encoding(self) -> Optional[str]:
+        return self.wrapped.encoding
+
+    @property
+    def errors(self) -> Optional[str]:
+        return self.wrapped.errors
+
+    def __getattr__(self, name: str):
+        return getattr(self.wrapped, name)
+
+
+def _schedule_async(coro) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        coro.close()
+        return
+
+    loop.create_task(coro)
+
+
+def emit_terminal_log(line: str, level: str = "info") -> None:
+    """Append one terminal line to Runtime Log without writing back to stdout."""
+    message = strip_ansi(line).strip()
+    if not message:
+        return
+
+    log_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "level": level,
+        "tag": "terminal",
+        "message": message[-2000:],
+    }
+    state.logs.append(log_entry)
+    if len(state.logs) > 1000:
+        state.logs = state.logs[-1000:]
+
+    _schedule_async(state.send_update("log", log_entry))
+    if state.current_kline and state.current_kline.get("open_time_ms") is not None:
+        _schedule_async(journal_storage.upsert_bar(
+            symbol=state.current_kline.get("symbol", state.current_symbol),
+            interval=state.current_kline.get("interval", state.current_interval),
+            open_time_ms=int(state.current_kline["open_time_ms"]),
+            bar_time=state.current_kline.get("time", log_entry["timestamp"]),
+            update={"log": log_entry},
+        ))
+
+
+def install_terminal_log_mirror() -> None:
+    """Install stdout/stderr mirror once for web monitoring mode."""
+    global _original_stdout, _original_stderr, _terminal_mirror_installed
+
+    with _terminal_mirror_lock:
+        if _terminal_mirror_installed:
+            return
+
+        _original_stdout = sys.stdout
+        _original_stderr = sys.stderr
+        sys.stdout = WebLogStream(sys.stdout, "info")
+        sys.stderr = WebLogStream(sys.stderr, "error")
+        _terminal_mirror_installed = True
+
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize persistent journal storage."""
     await journal_storage.init()
+    install_terminal_log_mirror()
 
 
 def set_initial_config(symbol: str, interval: str):
     """设置初始配置（在启动时调用）"""
+    install_terminal_log_mirror()
     state.current_symbol = symbol
     state.current_interval = interval
     logger = get_logger("webserver")

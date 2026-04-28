@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { BarTrace, LogEntry, PhaseStatus } from '../types';
 
 interface AgentActivityPanelProps {
@@ -115,10 +116,15 @@ function phaseStateLabel(phaseStatus: PhaseStatus, phaseKey: string): string {
 }
 
 export function AgentActivityPanel({ phaseStatus, agentReports, logs, trace }: AgentActivityPanelProps) {
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const effectivePhaseStatus = trace?.phase_status ?? phaseStatus;
   const effectiveReports = trace?.reports ?? agentReports;
   const effectiveLogs = trace?.logs ?? logs;
   const currentPhase = phaseMap[effectivePhaseStatus.current || ''] ?? '';
+
+  useEffect(() => {
+    setExpandedAgent(null);
+  }, [trace?.open_time_ms]);
 
   return (
     <section className="panel agent-activity-panel">
@@ -145,12 +151,20 @@ export function AgentActivityPanel({ phaseStatus, agentReports, logs, trace }: A
                   const report = pickReport(phaseBucket, agent.aliases);
                   const logHint = pickAgentLog(effectiveLogs, agent.aliases);
                   const content = report || logHint || 'Waiting for this agent output...';
+                  const cardKey = `${phase.key}:${agent.label}`;
+                  const expanded = expandedAgent === cardKey;
 
                   return (
-                    <div key={agent.label} className="agent-card">
-                      <p className="agent-name">{agent.label}</p>
+                    <button
+                      key={agent.label}
+                      type="button"
+                      className={`agent-card ${expanded ? 'expanded' : ''}`}
+                      aria-expanded={expanded}
+                      onClick={() => setExpandedAgent((current) => (current === cardKey ? null : cardKey))}
+                    >
+                      <span className="agent-name">{agent.label}</span>
                       <p className="agent-content">{content}</p>
-                    </div>
+                    </button>
                   );
                 })}
               </div>

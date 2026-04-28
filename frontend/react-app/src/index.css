@@ -469,15 +469,47 @@ button {
   border: 1px solid var(--muted-line);
   padding: 6px;
   background: rgba(255, 255, 255, 0.35);
+  color: inherit;
+  cursor: pointer;
+  display: block;
+  text-align: left;
+  width: 100%;
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.agent-card:hover {
+  border-color: var(--line);
+  background: #fffdf7;
+}
+
+.agent-card.expanded {
+  border-color: var(--line);
+  background: #fffdf7;
+  box-shadow: 2px 2px 0 var(--line);
 }
 
 .agent-name {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 0 4px;
   color: var(--ink);
   font-family: 'IBM Plex Mono', monospace;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
+}
+
+.agent-name::after {
+  content: 'OPEN';
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.agent-card.expanded .agent-name::after {
+  content: 'CLOSE';
+  color: var(--blue);
 }
 
 .agent-content {
@@ -487,6 +519,14 @@ button {
   line-height: 1.35;
   max-height: 38px;
   overflow: hidden;
+  white-space: pre-wrap;
+}
+
+.agent-card.expanded .agent-content {
+  max-height: 260px;
+  overflow: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--muted-line);
 }
 
 .decision-overview-body {
