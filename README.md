@@ -2,6 +2,8 @@
 
 基于大语言模型的多 Agent 协作加密货币量化交易系统。
 
+<img width="3444" height="1908" alt="9f79c5cd18a77d6471f97f785ef30a6d" src="https://github.com/user-attachments/assets/4249e2e6-730b-445c-898d-0c9030994398" />
+
 ## ✨ 核心特性
 
 - **🤖 12 Agent 协作决策**: 4阶段层级协作，从市场分析到交易执行
