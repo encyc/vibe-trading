@@ -40,19 +40,19 @@ export function ChartPanel({ klines, indicators, decisions, onBarSelect }: Chart
     const chart = createChart(containerRef.current, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: '#071325' },
-        textColor: '#94a3b8',
+        background: { type: ColorType.Solid, color: '#fbfaf5' },
+        textColor: '#2a2a2a',
         fontFamily: 'IBM Plex Mono, monospace',
       },
       grid: {
-        vertLines: { color: 'rgba(71, 85, 105, 0.25)' },
-        horzLines: { color: 'rgba(71, 85, 105, 0.25)' },
+        vertLines: { color: 'rgba(17, 17, 17, 0.08)' },
+        horzLines: { color: 'rgba(17, 17, 17, 0.08)' },
       },
       rightPriceScale: {
-        borderColor: 'rgba(71, 85, 105, 0.4)',
+        borderColor: 'rgba(17, 17, 17, 0.35)',
       },
       timeScale: {
-        borderColor: 'rgba(71, 85, 105, 0.4)',
+        borderColor: 'rgba(17, 17, 17, 0.35)',
         timeVisible: true,
         secondsVisible: false,
       },
@@ -61,29 +61,29 @@ export function ChartPanel({ klines, indicators, decisions, onBarSelect }: Chart
           color: 'rgba(14, 165, 233, 0.6)',
           width: 1,
           style: 2,
-          labelBackgroundColor: '#0ea5e9',
+          labelBackgroundColor: '#111111',
         },
         horzLine: {
           color: 'rgba(14, 165, 233, 0.6)',
           width: 1,
           style: 2,
-          labelBackgroundColor: '#0ea5e9',
+          labelBackgroundColor: '#111111',
         },
       },
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#14b8a6',
-      downColor: '#f97316',
+      upColor: '#00a88f',
+      downColor: '#f0642f',
       borderVisible: true,
-      wickUpColor: '#14b8a6',
-      wickDownColor: '#f97316',
-      borderUpColor: '#14b8a6',
-      borderDownColor: '#f97316',
+      wickUpColor: '#00a88f',
+      wickDownColor: '#f0642f',
+      borderUpColor: '#00a88f',
+      borderDownColor: '#f0642f',
     });
 
     const sma20Series = chart.addSeries(LineSeries, {
-      color: '#facc15',
+      color: '#4f6fff',
       lineWidth: 1,
       title: 'SMA20',
       priceLineVisible: false,
@@ -91,7 +91,7 @@ export function ChartPanel({ klines, indicators, decisions, onBarSelect }: Chart
     });
 
     const sma50Series = chart.addSeries(LineSeries, {
-      color: '#38bdf8',
+      color: '#111111',
       lineWidth: 1,
       title: 'SMA50',
       priceLineVisible: false,
@@ -200,7 +200,7 @@ export function ChartPanel({ klines, indicators, decisions, onBarSelect }: Chart
         .map((item) => ({
           time: toTimestamp(item.time),
           position: item.decision.includes('BUY') ? 'belowBar' : 'aboveBar',
-          color: item.decision.includes('BUY') ? '#14b8a6' : '#f97316',
+          color: item.decision.includes('BUY') ? '#00a88f' : '#f0642f',
           shape: item.decision.includes('BUY') ? 'arrowUp' : 'arrowDown',
           text: item.decision.replace('_', ' '),
         })),

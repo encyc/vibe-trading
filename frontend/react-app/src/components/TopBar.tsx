@@ -1,3 +1,4 @@
+import { RefreshCw } from 'lucide-react';
 import { formatCompact, formatLatency, formatPrice } from '../lib/format';
 import type { ConnectionState, DecisionData, FeedStatus, KlineData } from '../types';
 
@@ -22,38 +23,57 @@ export function TopBar({ symbol, klines, latestDecision, status, onReconnect }: 
   const previousClose = klines[klines.length - 2]?.close;
   const delta = latestKline && previousClose ? latestKline.close - previousClose : 0;
   const deltaPct = latestKline && previousClose ? (delta / previousClose) * 100 : 0;
+  const ticker = [
+    { label: symbol, value: latestKline ? `$${formatPrice(latestKline.close)}` : '--', delta: deltaPct },
+    { label: 'VOL', value: latestKline ? formatCompact(latestKline.volume) : '--', delta: 0 },
+    { label: 'BARS', value: String(klines.length), delta: 0 },
+    { label: 'LLM MODE', value: 'PAPER', delta: 0 },
+    { label: 'LAST DECISION', value: latestDecision?.decision ?? 'N/A', delta: 0 },
+  ];
 
   return (
     <header className="topbar">
-      <div className="brand-block">
-        <div className="brand-mark" aria-hidden="true" />
-        <div>
-          <p className="brand-title">Vibe Terminal</p>
-          <p className="brand-subtitle">LLM Multi-Agent Trading Cockpit</p>
+      <div className="topbar-main">
+        <div className="brand-block">
+          <div className="brand-mark" aria-hidden="true">V</div>
+          <div>
+            <p className="brand-title">Vibe Trading</p>
+            <p className="brand-subtitle">Multi-Agent Crypto Arena</p>
+          </div>
+        </div>
+
+        <nav className="top-nav" aria-label="Primary">
+          <span>Leaderboard</span>
+          <span>Research</span>
+          <span>Agent Logs</span>
+          <span>Paper Trade</span>
+        </nav>
+
+        <div className="meta-block">
+          <div className={`connection-pill ${status.state}`}>
+            <span className="dot" />
+            <span>{connectionLabel[status.state]}</span>
+          </div>
+          <div className="meta-stat">Lag {formatLatency(status.lastMessageAt)}</div>
+          <button className="reconnect-btn" onClick={onReconnect} type="button" title="Reconnect WebSocket">
+            <RefreshCw size={14} />
+            <span>Reconnect</span>
+          </button>
         </div>
       </div>
 
-      <div className="symbol-block">
-        <p className="symbol-name">{symbol}</p>
-        <p className="symbol-price">${latestKline ? formatPrice(latestKline.close) : '--'}</p>
-        <p className={`symbol-delta ${delta >= 0 ? 'up' : 'down'}`}>
-          {delta >= 0 ? '+' : ''}{formatPrice(delta)} ({deltaPct.toFixed(2)}%)
-        </p>
-      </div>
-
-      <div className="meta-block">
-        <div className={`connection-pill ${status.state}`}>
-          <span className="dot" />
-          <span>{connectionLabel[status.state]}</span>
-        </div>
-        <div className="meta-stat">Lag {formatLatency(status.lastMessageAt)}</div>
-        <div className="meta-stat">Vol {latestKline ? formatCompact(latestKline.volume) : '--'}</div>
-        <button className="reconnect-btn" onClick={onReconnect} type="button">Reconnect</button>
-      </div>
-
-      <div className="decision-chip">
-        <p>Latest Decision</p>
-        <strong>{latestDecision?.decision ?? 'N/A'}</strong>
+      <div className="ticker-ribbon" aria-label="Market ticker">
+        {ticker.map((item) => (
+          <div key={item.label} className="ticker-cell">
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            {item.delta !== 0 && (
+              <em className={item.delta >= 0 ? 'up' : 'down'}>
+                {item.delta >= 0 ? '+' : ''}{item.delta.toFixed(2)}%
+              </em>
+            )}
+          </div>
+        ))}
       </div>
     </header>
   );

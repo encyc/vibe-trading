@@ -5,6 +5,7 @@
 
 # Variables
 SYMBOL ?= BTCUSDT
+INTERVAL ?= 30m
 PYTHONPATH = backend/src
 BACKEND_DIR = backend
 
@@ -21,12 +22,12 @@ install: ## Install dependencies
 	cd $(BACKEND_DIR) && uv pip install -e .
 
 start: ## Run trading system (multi-threaded)
-	@echo "Starting trading system for $(SYMBOL)..."
-	PYTHONPATH=$(PYTHONPATH) uv run -- vibe-trade start $(SYMBOL)
+	@echo "Starting trading system for $(SYMBOL) ($(INTERVAL))..."
+	PYTHONPATH=$(PYTHONPATH) uv run -- vibe-trade start $(SYMBOL) --interval $(INTERVAL)
 
 start-web: ## Run trading system with web monitoring (http://localhost:8000)
-	@echo "Starting trading system with web monitoring for $(SYMBOL)..."
-	PYTHONPATH=$(PYTHONPATH) uv run -- vibe-trade start $(SYMBOL) --web
+	@echo "Starting trading system with web monitoring for $(SYMBOL) ($(INTERVAL))..."
+	PYTHONPATH=$(PYTHONPATH) uv run -- vibe-trade start $(SYMBOL) --interval $(INTERVAL) --web
 
 analyze: ## Run single analysis
 	@echo "Analyzing $(SYMBOL)..."

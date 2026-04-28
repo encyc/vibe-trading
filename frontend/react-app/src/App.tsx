@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
 import { AgentActivityPanel } from './components/AgentActivityPanel';
 import { ChartPanel } from './components/ChartPanel';
 import { DecisionOverviewPanel } from './components/DecisionOverviewPanel';
 import { LogsPanel } from './components/LogsPanel';
-import { SideToolbar } from './components/SideToolbar';
 import { TopBar } from './components/TopBar';
 import { getBarTrace } from './services/api';
 import { useTradingFeed } from './hooks/useTradingFeed';
@@ -18,6 +17,14 @@ const PANEL_ORDER_STORAGE_KEY = 'vibe-panel-order-v1';
 const PANEL_SIZE_STORAGE_KEY = 'vibe-panel-size-v1';
 const SPLIT_STORAGE_KEY = 'vibe-main-split-v1';
 const MIN_PANEL_SIZE = 12;
+const AGENT_SCORECARDS = [
+  { name: 'Technical', phase: 'analysts', accent: '#4f6fff' },
+  { name: 'Fundamental', phase: 'analysts', accent: '#111111' },
+  { name: 'Sentiment', phase: 'analysts', accent: '#00a88f' },
+  { name: 'Research PM', phase: 'researchers', accent: '#8d5cff' },
+  { name: 'Risk Team', phase: 'risk', accent: '#f0642f' },
+  { name: 'Portfolio', phase: 'pm', accent: '#008f7a' },
+];
 
 function App() {
   const { snapshot, status, latestDecision, reconnectNow } = useTradingFeed();
@@ -258,6 +265,10 @@ function App() {
   }, [panelOrder, panelSizes]);
 
   const controlRows = panelOrder.map((panel) => `${Math.max(8, panelSizes[panel]).toFixed(3)}fr`).join(' ');
+  const selectedOpenTime = selectedKline ? new Date(selectedKline.time).toLocaleString() : 'NO BAR SELECTED';
+  const traceReports = selectedBarTrace?.reports ?? snapshot.agentReports;
+  const traceLogs = selectedBarTrace?.logs ?? snapshot.logs;
+  const traceDecision = selectedBarTrace?.decision ?? latestDecision;
 
   return (
     <div className="app-shell trading-layout">
@@ -276,12 +287,10 @@ function App() {
         }}
       >
         <section className="chart-zone">
-          <SideToolbar />
-
           <div className="chart-stage panel">
             <div className="panel-head chart-head">
-              <h2>BTCUSDT · 4小时</h2>
-              <span>{snapshot.klines.length > 0 ? `收 ${snapshot.klines[snapshot.klines.length - 1].close.toFixed(2)}` : '等待数据'}</span>
+              <h2>Total Account Value</h2>
+              <span>{selectedOpenTime}</span>
             </div>
 
             <div className="chart-main">
@@ -294,8 +303,30 @@ function App() {
             </div>
 
             <div className="chart-footer">
-              <span>已加载历史数据: {snapshot.klines.length}</span>
-              <span>最近更新: {status.lastMessageAt ? new Date(status.lastMessageAt).toLocaleTimeString() : '--'}</span>
+              <span>Loaded bars: {snapshot.klines.length}</span>
+              <span>Last update: {status.lastMessageAt ? new Date(status.lastMessageAt).toLocaleTimeString() : '--'}</span>
+            </div>
+
+            <div className="agent-score-strip">
+              {AGENT_SCORECARDS.map((agent) => {
+                const reportCount = Object.keys(traceReports[agent.phase] ?? {}).length;
+                const hasActivity = reportCount > 0 || traceLogs.some((row) => row.tag.toLowerCase().includes(agent.name.toLowerCase().split(' ')[0]));
+
+                return (
+                  <article key={agent.name} className="agent-score-card" style={{ '--agent-accent': agent.accent } as CSSProperties}>
+                    <span className="agent-dot" />
+                    <strong>{agent.name}</strong>
+                    <em>{hasActivity ? 'ACTIVE' : 'WAITING'}</em>
+                    <p>{reportCount} reports</p>
+                  </article>
+                );
+              })}
+              <article className="agent-score-card final-card">
+                <span className="agent-dot" />
+                <strong>Final</strong>
+                <em>{traceDecision?.decision ?? 'N/A'}</em>
+                <p>{traceDecision?.rationale ? 'decision recorded' : 'pending decision'}</p>
+              </article>
             </div>
           </div>
         </section>
