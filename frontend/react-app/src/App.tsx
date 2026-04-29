@@ -156,6 +156,7 @@ function App() {
         <DecisionOverviewPanel
           klines={snapshot.klines}
           decisions={snapshot.decisions}
+          executions={snapshot.executions}
           selectedKline={selectedKline}
           trace={selectedBarTrace}
         />
@@ -167,6 +168,7 @@ function App() {
       selectedKline,
       snapshot.agentReports,
       snapshot.decisions,
+      snapshot.executions,
       snapshot.klines,
       snapshot.logs,
       snapshot.phaseStatus,

@@ -15,12 +15,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from pi_logger import get_logger, configure, info, success, warning, error, separator
+from pi_logger import get_logger, configure, info, success, warning, separator
 
 from vibe_trading.config.settings import get_settings
 from vibe_trading.main.multi_thread_main import MultiThreadedTradingSystem
 from vibe_trading.data_sources.kline_storage import KlineStorage
 from vibe_trading.coordinator.trading_coordinator import TradingCoordinator
+from vibe_trading.execution.order_executor import TradingMode as ExecutorTradingMode, create_executor
 
 # Prime Agent导入
 from vibe_trading.prime import PrimeAgent, PrimeAgentConfig, PrimeConfig, HarnessConfig
@@ -34,6 +35,7 @@ logger = get_logger("main")
 class TradingMode(str, Enum):
     """交易模式"""
     PAPER = "paper"  # 纸面交易
+    TESTNET = "testnet"  # Binance 测试网
     LIVE = "live"    # 实盘交易
 
 
@@ -67,7 +69,7 @@ async def run_web_server(port: int = 8000, symbol: str = "BTCUSDT", interval: st
 def start(
     symbols: List[str] = typer.Argument(..., help="交易对符号，如 BTCUSDT ETHUSDT"),
     interval: str = typer.Option("30m", help="K线间隔 (1m, 5m, 15m, 30m, 1h, 4h, 1d)"),
-    mode: str = typer.Option("paper", help="交易模式: paper (纸面) 或 live (实盘)"),
+    mode: str = typer.Option("paper", help="交易模式: paper、testnet 或 live"),
     execute: bool = typer.Option(False, help="--execute: 实盘模式下真正执行订单"),
     log_level: str = typer.Option("INFO", help="日志级别: DEBUG, INFO, WARNING, ERROR"),
     save_logs: bool = typer.Option(True, help="--save-logs/--no-save-logs: 是否保存日志到文件 (默认保存到 logs/ 目录)"),
@@ -100,10 +102,14 @@ def start(
     """
     # 配置日志
     configure(log_level=log_level, json_output=False, enable_file_logging=True)
+    mode = mode.lower()
 
     # 验证交易模式
     trading_mode = TradingMode.PAPER
-    if mode == "live":
+    if mode == "testnet":
+        trading_mode = TradingMode.TESTNET
+        console.print("[yellow]⚠️  Binance Testnet 模式 - 将向测试网提交订单，不使用真实资金[/yellow]")
+    elif mode == "live":
         trading_mode = TradingMode.LIVE
         # 实盘模式二次确认
         if not execute:
@@ -117,10 +123,17 @@ def start(
             confirm = typer.confirm("确定要继续吗？", default=False)
             if not confirm:
                 raise typer.Abort()
+    elif mode != "paper":
+        console.print("[red]交易模式无效，请使用 paper、testnet 或 live[/red]")
+        raise typer.Abort()
 
     # 显示启动信息
-    mode_color = "green" if trading_mode == TradingMode.PAPER else "red"
-    mode_text = "📝 纸面交易模式" if trading_mode == TradingMode.PAPER else "⚠️  实盘交易模式"
+    mode_color = "green" if trading_mode == TradingMode.PAPER else ("yellow" if trading_mode == TradingMode.TESTNET else "red")
+    mode_text = {
+        TradingMode.PAPER: "📝 纸面交易模式",
+        TradingMode.TESTNET: "🧪 Binance Testnet 模式",
+        TradingMode.LIVE: "⚠️  实盘交易模式",
+    }[trading_mode]
 
     web_status = f"✅ 启用 (http://localhost:{web_port})" if web else "❌ 未启用"
 
@@ -147,16 +160,30 @@ def start(
     if len(symbols) > 1:
         warning(f"多交易对模式: 使用 {primary_symbol} 作为主symbol，其他symbol暂不支持", tag="INFO")
 
+    executor = create_execution_executor(trading_mode, execute)
+
     # 运行三线程系统
     asyncio.run(run_multi_thread_system(
         symbol=primary_symbol,
         interval=interval,
         mode=trading_mode,
         execute_trades=execute,
+        executor=executor,
         save_logs=save_logs,
         enable_web=web,
         web_port=web_port,
     ))
+
+
+def create_execution_executor(mode: TradingMode, execute: bool):
+    """Create the executor bound to Portfolio Manager tools."""
+    if mode == TradingMode.PAPER:
+        return create_executor(ExecutorTradingMode.PAPER)
+    if mode == TradingMode.TESTNET:
+        return create_executor(ExecutorTradingMode.TESTNET, dry_run=False)
+    if not execute:
+        return create_executor(ExecutorTradingMode.LIVE, dry_run=True)
+    return create_executor(ExecutorTradingMode.LIVE, dry_run=False)
 
 
 async def run_multi_thread_system(
@@ -164,6 +191,7 @@ async def run_multi_thread_system(
     interval: str,
     mode: TradingMode,
     execute_trades: bool,
+    executor=None,
     save_logs: bool = True,
     enable_web: bool = False,
     web_port: int = 8000,
@@ -211,6 +239,7 @@ async def run_multi_thread_system(
         system = MultiThreadedTradingSystem(
             symbol=symbol,
             interval=interval,
+            executor=executor,
         )
 
         # 设置信号处理
@@ -548,7 +577,7 @@ def macro(
                 f"[bold]市场状态:[/bold] {result.get('market_regime')}\n"
                 f"[bold]整体情绪:[/bold] {result.get('overall_sentiment')}\n"
                 f"[bold]信心分数:[/bold] {result.get('confidence', 0):.2f}",
-                title=f"[bold cyan]宏观分析结果[/bold cyan]",
+                title="[bold cyan]宏观分析结果[/bold cyan]",
             ))
         else:
             warning("宏观分析失败", tag="MACRO")

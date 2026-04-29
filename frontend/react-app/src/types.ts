@@ -48,6 +48,16 @@ export interface LogEntry {
   interval?: string;
 }
 
+export interface ExecutionRecord {
+  timestamp: string;
+  agent: string;
+  tool_name: string;
+  tool_call_id: string;
+  args: Record<string, unknown>;
+  result: Record<string, unknown>;
+  is_error: boolean;
+}
+
 export interface PhaseState {
   status: 'running' | 'completed' | 'error';
   duration?: number;
@@ -68,6 +78,7 @@ export interface InitPayload {
   indicators: IndicatorsData;
   decisions: DecisionData[];
   logs: LogEntry[];
+  executions?: ExecutionRecord[];
   phase_status: PhaseStatus;
   agent_reports: Record<string, Record<string, string>>;
 }
@@ -77,6 +88,7 @@ export type WsMessage =
   | { type: 'kline'; data: KlineData }
   | { type: 'decision'; data: DecisionData }
   | { type: 'log'; data: LogEntry }
+  | { type: 'execution'; data: ExecutionRecord }
   | { type: 'phase'; data: { phase: string; status: 'running' | 'completed' | 'error'; duration?: number } }
   | { type: 'report'; data: AgentReport }
   | { type: 'reset'; data?: Record<string, never> }
@@ -88,6 +100,7 @@ export interface TradingSnapshot {
   indicators: IndicatorsData;
   decisions: DecisionData[];
   logs: LogEntry[];
+  executions: ExecutionRecord[];
   phaseStatus: PhaseStatus;
   agentReports: Record<string, Record<string, string>>;
 }
@@ -118,6 +131,7 @@ export interface BarTrace {
   decision: DecisionData | null;
   reports: Record<string, Record<string, string>>;
   logs: LogEntry[];
+  executions?: ExecutionRecord[];
   updated_at: string;
 }
 
@@ -141,6 +155,7 @@ export const EMPTY_SNAPSHOT: TradingSnapshot = {
   indicators: EMPTY_INDICATORS,
   decisions: [],
   logs: [],
+  executions: [],
   phaseStatus: { current: '' },
   agentReports: {},
 };

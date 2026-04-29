@@ -4,10 +4,10 @@
 管理交易持仓的生命周期。
 """
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from vibe_trading.data_sources.binance_client import Position, PositionSide, OrderSide
+from vibe_trading.data_sources.binance_client import OrderSide, OrderType, Position, PositionSide
 from vibe_trading.execution.order_executor import OrderExecutor
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ class PositionManager:
             await self._executor.place_order(
                 symbol=symbol,
                 side=side,
-                order_type="MARKET",
+                order_type=OrderType.MARKET,
                 quantity=close_qty,
                 position_side=position_side,
             )

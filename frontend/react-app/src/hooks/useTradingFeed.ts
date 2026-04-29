@@ -15,6 +15,7 @@ const WATCHDOG_INTERVAL_MS = 10000;
 const MAX_BACKOFF_MS = 20000;
 const BASE_BACKOFF_MS = 1200;
 const MAX_LOGS = 500;
+const MAX_EXECUTIONS = 500;
 const MAX_DECISIONS = 1000;
 const MAX_KLINES = 2000;
 
@@ -168,6 +169,7 @@ export function useTradingFeed() {
             indicators: message.data.indicators ?? EMPTY_INDICATORS,
             decisions: (message.data.decisions ?? []).slice(-MAX_DECISIONS),
             logs: (message.data.logs ?? []).slice(-MAX_LOGS),
+            executions: (message.data.executions ?? []).slice(-MAX_EXECUTIONS),
             phaseStatus: message.data.phase_status ?? { current: '' },
             agentReports: message.data.agent_reports ?? {},
           };
@@ -180,6 +182,10 @@ export function useTradingFeed() {
         case 'log': {
           const nextLogs = [...prev.logs, message.data].slice(-MAX_LOGS);
           return { ...prev, logs: nextLogs };
+        }
+        case 'execution': {
+          const nextExecutions = [...prev.executions, message.data].slice(-MAX_EXECUTIONS);
+          return { ...prev, executions: nextExecutions };
         }
         case 'phase': {
           const nextPhaseStatus = {

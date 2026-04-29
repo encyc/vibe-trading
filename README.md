@@ -157,7 +157,7 @@ uv run test_historical.py  # 访问 http://localhost:8000
 
 本项目从以下项目汲取灵感：
 
-- [TradeAgents](https://github.com/shrimo/TradeAgents) - Agent协作架构
+- [TradeAgents](https://github.com/TauricResearch/TradingAgents) - Agent协作架构
 - [pi_mono](https://github.com/badlogic/pi-mono) - Agent框架
 - [py_mono](https://github.com/encyc/py_mono) - Agent框架(个人Python复刻)
 

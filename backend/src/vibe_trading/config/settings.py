@@ -70,6 +70,10 @@ class Settings:
     enable_file_logging: bool = True  # 是否启用文件日志记录
 
     # 外部 API 配置
+    binance_testnet_api_key: str = field(default_factory=lambda: os.getenv("BINANCE_TESTNET_API_KEY", ""))
+    binance_testnet_api_secret: str = field(default_factory=lambda: os.getenv("BINANCE_TESTNET_API_SECRET", ""))
+    binance_api_key: str = field(default_factory=lambda: os.getenv("BINANCE_API_KEY", ""))
+    binance_api_secret: str = field(default_factory=lambda: os.getenv("BINANCE_API_SECRET", ""))
     cryptocmp_api_key: Optional[str] = field(default_factory=lambda: os.getenv("CRYPTOCOMPARE_API_KEY"))
     lunarcrush_api_key: Optional[str] = field(default_factory=lambda: os.getenv("LUNARCRUSH_API_KEY"))
 
@@ -96,6 +100,10 @@ class Settings:
             log_level=LogLevel(os.getenv("LOG_LEVEL", "INFO")),
             log_file=os.getenv("LOG_FILE"),
             enable_file_logging=os.getenv("ENABLE_FILE_LOGGING", "true").lower() == "true",
+            binance_testnet_api_key=os.getenv("BINANCE_TESTNET_API_KEY", ""),
+            binance_testnet_api_secret=os.getenv("BINANCE_TESTNET_API_SECRET", ""),
+            binance_api_key=os.getenv("BINANCE_API_KEY", ""),
+            binance_api_secret=os.getenv("BINANCE_API_SECRET", ""),
             database_url=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./vibe_trading.db"),
             cryptocmp_api_key=os.getenv("CRYPTOCOMPARE_API_KEY"),
             lunarcrush_api_key=os.getenv("LUNARCRUSH_API_KEY"),

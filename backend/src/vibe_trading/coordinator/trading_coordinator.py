@@ -64,6 +64,7 @@ from vibe_trading.coordinator.quality_tracker import (
 from vibe_trading.memory.reflection import (
     TradeReflector,
 )
+from vibe_trading.execution.order_executor import OrderExecutor, PaperOrderExecutor
 
 logger = logging.getLogger(__name__)
 log = get_logger("TradingCoordinator")
@@ -106,18 +107,21 @@ class TradingCoordinator:
         storage: Optional[KlineStorage] = None,
         memory: Optional[PersistentMemory] = None,
         agent_config: Optional[AgentTeamConfig] = None,
+        executor: Optional[OrderExecutor] = None,
     ):
         self.symbol = symbol
         self.interval = interval
         self.storage = storage
         self.memory = memory
         self.agent_config = agent_config or AgentTeamConfig()
+        self.executor = executor or PaperOrderExecutor()
 
         # 工具上下文
         self._tool_context = ToolContext(
             symbol=symbol,
             interval=interval,
             storage=storage,
+            executor=self.executor,
         )
 
         # Agents
@@ -571,6 +575,7 @@ class TradingCoordinator:
 
         import time
         phase_start = time.time()
+        self._tool_context.current_bar_open_time_ms = bar_open_time_ms
         final_decision = await self._run_portfolio_manager(
             analyst_reports,
             investment_plan,

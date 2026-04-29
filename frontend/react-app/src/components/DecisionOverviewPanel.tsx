@@ -1,14 +1,15 @@
 import { formatCompact, formatPrice, formatTime } from '../lib/format';
-import type { BarTrace, DecisionData, KlineData } from '../types';
+import type { BarTrace, DecisionData, ExecutionRecord, KlineData } from '../types';
 
 interface DecisionOverviewPanelProps {
   klines: KlineData[];
   decisions: DecisionData[];
+  executions?: ExecutionRecord[];
   selectedKline?: KlineData | null;
   trace?: BarTrace | null;
 }
 
-export function DecisionOverviewPanel({ klines, decisions, selectedKline, trace }: DecisionOverviewPanelProps) {
+export function DecisionOverviewPanel({ klines, decisions, executions: liveExecutions = [], selectedKline, trace }: DecisionOverviewPanelProps) {
   const current = selectedKline ?? klines[klines.length - 1];
   const currentOpenMs = current ? (current.open_time_ms ?? new Date(current.time).getTime()) : null;
   const previous = currentOpenMs
@@ -25,6 +26,7 @@ export function DecisionOverviewPanel({ klines, decisions, selectedKline, trace 
       : decisions[decisions.length - 1]
   );
   const recent = decisions.slice(-5).reverse();
+  const executions = trace?.executions ?? liveExecutions;
 
   const delta = current && previous ? current.close - previous.close : 0;
   const deltaPct = current && previous ? (delta / previous.close) * 100 : 0;
@@ -71,6 +73,26 @@ export function DecisionOverviewPanel({ klines, decisions, selectedKline, trace 
               <span>{formatPrice(row.close)}</span>
             </div>
           ))}
+        </div>
+
+        <div className="execution-list">
+          <p className="recent-title">PM Tool Calls</p>
+          {executions.length === 0 && <p className="empty-text">No execution tool calls for this candle.</p>}
+          {executions.slice(-4).reverse().map((item) => {
+            const result = item.result ?? {};
+            const status = String(result.status ?? (item.is_error ? 'ERROR' : 'DONE'));
+            const symbol = String(result.symbol ?? '');
+            const side = String(result.side ?? '');
+            const quantity = String(result.quantity ?? '');
+            return (
+              <div key={`${item.tool_call_id}-${item.timestamp}`} className={`execution-row ${item.is_error ? 'error' : ''}`}>
+                <span>{formatTime(item.timestamp)}</span>
+                <strong>{item.tool_name}</strong>
+                <em>{status}</em>
+                <p>{[symbol, side, quantity].filter(Boolean).join(' · ') || 'tool result recorded'}</p>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>

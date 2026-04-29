@@ -613,7 +613,8 @@ button {
 
 .kline-grid div,
 .final-decision-box,
-.recent-decision-list {
+.recent-decision-list,
+.execution-list {
   border: 1px solid var(--line);
   padding: 7px;
   background: var(--paper);
@@ -685,6 +686,42 @@ button {
 
 .recent-row strong {
   justify-self: center;
+}
+
+.execution-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border-top: 1px solid var(--muted-line);
+  padding-top: 6px;
+  margin-top: 6px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+}
+
+.execution-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.execution-row em {
+  color: var(--up);
+  font-style: normal;
+}
+
+.execution-row.error em {
+  color: var(--down);
+}
+
+.execution-row p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .log-list {

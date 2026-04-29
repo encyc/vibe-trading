@@ -7,16 +7,17 @@ Binance API 客户端
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
+from urllib.parse import urlencode
 
 import aiohttp
 import websockets
-from pydantic import BaseModel
 
-from vibe_trading.config.binance_config import BinanceConfig, BinanceEnvironment
+from vibe_trading.config.binance_config import BinanceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,7 @@ class OrderType(str, Enum):
 
 class PositionSide(str, Enum):
     """持仓方向"""
+    BOTH = "BOTH"
     LONG = "LONG"
     SHORT = "SHORT"
 
@@ -301,7 +303,7 @@ class BinanceRestClient:
         import hmac
         import hashlib
 
-        query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+        query_string = urlencode(params, doseq=True)
         signature = hmac.new(
             self.config.api_secret.encode(), query_string.encode(), hashlib.sha256
         ).hexdigest()
@@ -325,7 +327,7 @@ class BinanceRestClient:
         headers["X-MBX-APIKEY"] = self.config.api_key
 
         if signed:
-            params["timestamp"] = int(asyncio.get_event_loop().time() * 1000)
+            params["timestamp"] = int(time.time() * 1000)
             params = self._sign(params)
 
         kwargs["params"] = params
@@ -431,6 +433,8 @@ class BinanceRestClient:
             params["stopPrice"] = stop_price
         if reduce_only:
             params["reduceOnly"] = "true"
+        if order_type in {OrderType.LIMIT, OrderType.STOP_LIMIT, OrderType.TAKE_PROFIT_LIMIT}:
+            params.setdefault("timeInForce", "GTC")
 
         data = await self._request("POST", "/fapi/v1/order", signed=True, **{"params": params})
 

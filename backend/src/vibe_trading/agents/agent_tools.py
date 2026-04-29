@@ -150,6 +150,18 @@ class AnalyzeVolumePatternsParams(BaseModel):
     interval: str = Field(default="30m", description="K线间隔")
 
 
+class SubmitTradeOrderParams(BaseModel):
+    """提交交易订单参数"""
+    symbol: str = Field(description="交易对符号，如 BTCUSDT")
+    side: str = Field(description="订单方向：BUY 或 SELL")
+    order_type: str = Field(default="MARKET", description="订单类型：MARKET、LIMIT、STOP_MARKET、TAKE_PROFIT_MARKET")
+    quantity: float = Field(gt=0, description="下单数量，币本位数量，例如 BTC 数量")
+    position_side: str = Field(default="BOTH", description="持仓方向：BOTH、LONG 或 SHORT")
+    price: Optional[float] = Field(default=None, description="限价单价格；市价单不填")
+    stop_price: Optional[float] = Field(default=None, description="止损/止盈触发价格")
+    rationale: str = Field(default="", description="Portfolio Manager 对本次下单的最终理由")
+
+
 # =============================================================================
 # 执行函数
 # =============================================================================
@@ -510,6 +522,73 @@ async def execute_analyze_volume_patterns(
     confirmation = result.get("confirmation", "N/A")
     text = f"成交量模式: {pattern}, 确认度: {confirmation}"
     return AgentToolResult(content=[TextContent(text=text)])
+
+
+def create_submit_trade_order_tool(tool_context: Any) -> AgentTool:
+    """Create a Portfolio Manager execution tool bound to a ToolContext."""
+
+    async def execute_submit_trade_order(
+        name: str,
+        args: SubmitTradeOrderParams,
+        extra: Any = None,
+        callback: Any = None,
+    ) -> AgentToolResult:
+        """Submit an order through the configured executor."""
+        if not getattr(tool_context, "executor", None):
+            raise RuntimeError("No order executor configured for this agent context")
+
+        from vibe_trading.data_sources.binance_client import OrderSide, OrderType, PositionSide
+
+        side = OrderSide(args.side.upper())
+        order_type = OrderType(args.order_type.upper())
+        position_side = PositionSide(args.position_side.upper())
+
+        result = await tool_context.executor.place_order(
+            symbol=args.symbol.upper(),
+            side=side,
+            order_type=order_type,
+            quantity=args.quantity,
+            price=args.price,
+            stop_price=args.stop_price,
+            position_side=position_side,
+        )
+
+        details = {
+            "order_id": result.order_id,
+            "symbol": result.symbol,
+            "side": result.side.value,
+            "order_type": result.order_type.value,
+            "quantity": result.quantity,
+            "price": result.price,
+            "filled_price": result.filled_price,
+            "filled_quantity": result.filled_quantity,
+            "status": result.status,
+            "is_paper": result.is_paper,
+            "rationale": args.rationale,
+        }
+        text = (
+            f"订单已提交: {result.status}\n"
+            f"order_id={result.order_id}, symbol={result.symbol}, side={result.side.value}, "
+            f"type={result.order_type.value}, quantity={result.quantity}, "
+            f"filled={result.filled_quantity} @ {result.filled_price}"
+        )
+        return AgentToolResult(content=[TextContent(text=text)], details=details)
+
+    return AgentTool(
+        name="submit_trade_order",
+        label="提交交易订单",
+        description=(
+            "Portfolio Manager 专用执行工具。仅在最终批准交易后调用。"
+            "根据当前执行器配置提交订单；Paper/Dry-run 模式不会触发真实主网成交。"
+        ),
+        parameters=SubmitTradeOrderParams,
+        execute=execute_submit_trade_order,
+    )
+
+
+def get_execution_tools(tool_context: Any) -> list[AgentTool]:
+    """Get execution tools bound to the provided ToolContext."""
+    return [create_submit_trade_order_tool(tool_context)]
 
 
 # =============================================================================

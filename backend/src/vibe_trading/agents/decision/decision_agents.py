@@ -3,14 +3,15 @@
 
 包括交易员和投资组合经理。
 """
-from typing import Dict, List, Optional
+import asyncio
+from typing import Any, Dict, List, Optional
 
 from pi_agent_core import Agent, AgentOptions
 from pi_ai.config import get_model_from_config
 from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
-from vibe_trading.config.prompts import TRADER_PROMPT, PORTFOLIO_MANAGER_PROMPT
+from vibe_trading.config.prompts import PORTFOLIO_MANAGER_PROMPT
 from vibe_trading.config.settings import get_settings
 from vibe_trading.agents.agent_factory import ToolContext, setup_streaming
 from vibe_trading.agents.decision.trading_tools import (
@@ -20,9 +21,7 @@ from vibe_trading.agents.decision.trading_tools import (
     DecisionFramework,
     TradingPlan,
     DecisionScorecard,
-    OrderType,
     PositionSide,
-    ExecutionStyle,
 )
 
 logger = get_logger(__name__)
@@ -305,6 +304,7 @@ class PortfolioManagerAgent:
         self._agent: Optional[Agent] = None
         self._tool_context: Optional[ToolContext] = None
         self._memory: Optional[object] = None
+        self._execution_tool_args: Dict[str, Any] = {}
 
         # 决策框架
         self._decision_framework = DecisionFramework()
@@ -329,8 +329,10 @@ class PortfolioManagerAgent:
         # 获取tools - 使用角色特定的工具集合
         agent_tools = []
         try:
-            from vibe_trading.agents.agent_tools import get_tools_for_agent
+            from vibe_trading.agents.agent_tools import get_execution_tools, get_tools_for_agent
             agent_tools = get_tools_for_agent("portfolio_manager")
+            if getattr(tool_context, "executor", None):
+                agent_tools.extend(get_execution_tools(tool_context))
             logger.info(f"Loaded {len(agent_tools)} tools for Portfolio Manager")
         except Exception as e:
             logger.warning(f"Could not load agent tools: {e}")
@@ -343,9 +345,17 @@ class PortfolioManagerAgent:
                 top_k=3,
             )
             if relevant_memories:
-                memory_context = f"\nRELEVANT HISTORICAL EXPERIENCES:\n" + "\n".join(relevant_memories)
+                memory_context = "\nRELEVANT HISTORICAL EXPERIENCES:\n" + "\n".join(relevant_memories)
 
         system_prompt = PORTFOLIO_MANAGER_PROMPT
+        if getattr(tool_context, "executor", None):
+            system_prompt += (
+                "\n\nEXECUTION TOOL POLICY:\n"
+                "- You are the only regular agent authorized to submit orders.\n"
+                "- Call submit_trade_order only after your final decision explicitly approves a trade.\n"
+                "- Do not call submit_trade_order for HOLD, WEAK_BUY, or WEAK_SELL decisions.\n"
+                "- The tool is bound to the configured execution mode; Paper/Dry-run modes are safe for validation.\n"
+            )
         if memory_context:
             system_prompt += "\n\n" + memory_context
 
@@ -363,8 +373,61 @@ class PortfolioManagerAgent:
 
         # 设置流式打印
         setup_streaming(self._agent, "Portfolio Manager", "blue")
+        self._agent.subscribe(self._track_execution_tool_event)
 
         logger.info(f"Portfolio Manager Agent initialized for {tool_context.symbol}")
+
+    def _track_execution_tool_event(self, event: Any) -> None:
+        """Persist PM execution tool calls for per-bar web tracing."""
+        event_type = getattr(event, "type", None)
+        if getattr(event, "tool_name", None) == "submit_trade_order" and event_type == "tool_execution_start":
+            self._execution_tool_args[event.tool_call_id] = self._to_jsonable(getattr(event, "args", {}))
+            return
+
+        if event_type != "tool_execution_end":
+            return
+        if getattr(event, "tool_name", None) != "submit_trade_order":
+            return
+        if not self._tool_context:
+            return
+
+        result = getattr(event, "result", None)
+        result_details = getattr(result, "details", None) or {}
+
+        payload = {
+            "agent": "Portfolio Manager",
+            "tool_name": event.tool_name,
+            "tool_call_id": event.tool_call_id,
+            "args": self._execution_tool_args.pop(event.tool_call_id, {}),
+            "result": self._to_jsonable(result_details),
+            "is_error": bool(getattr(event, "is_error", False)),
+            "open_time_ms": getattr(self._tool_context, "current_bar_open_time_ms", None),
+            "symbol": self._tool_context.symbol,
+            "interval": self._tool_context.interval,
+        }
+
+        try:
+            from vibe_trading.web.server import send_execution
+            loop = asyncio.get_running_loop()
+            loop.create_task(send_execution(**payload))
+        except RuntimeError:
+            return
+        except Exception:
+            return
+
+    def _to_jsonable(self, value: Any) -> Any:
+        """Convert pydantic/enums/dataclasses to web-safe JSON values."""
+        if hasattr(value, "model_dump"):
+            return value.model_dump()
+        if hasattr(value, "to_dict"):
+            return value.to_dict()
+        if isinstance(value, dict):
+            return {str(k): self._to_jsonable(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._to_jsonable(item) for item in value]
+        if hasattr(value, "value"):
+            return value.value
+        return value
 
     async def make_final_decision(
         self,

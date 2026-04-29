@@ -50,6 +50,7 @@ class ConnectionState:
         self.klines: List[dict] = []
         self.decisions: List[dict] = []
         self.logs: List[dict] = []
+        self.executions: List[dict] = []
         self.phase_status: dict = {}
         self.agent_reports: dict = {}
         self.indicators: dict = {
@@ -326,6 +327,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "indicators": state.indicators,
                 "decisions": state.decisions,
                 "logs": state.logs[-100:],
+                "executions": state.executions[-100:],
                 "phase_status": state.phase_status,
                 "agent_reports": state.agent_reports,
             }
@@ -345,7 +347,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     
             except asyncio.TimeoutError:
                 # 超时错误 - 忽略，让连接保持
-                logger.warning(f"Message timeout, keeping connection alive")
+                logger.warning("Message timeout, keeping connection alive")
                 continue
                     
             except Exception as e:
@@ -411,6 +413,7 @@ async def init_config(config: InitConfig):
     state.klines = []
     state.decisions = []
     state.logs = []
+    state.executions = []
 
     # 加载正确的历史K线
     await load_historical_klines()
@@ -632,9 +635,46 @@ async def get_bar_trace(open_time_ms: int, symbol: str = "BTCUSDT", interval: st
             "decision": bar.decision,
             "reports": bar.reports,
             "logs": bar.logs,
+            "executions": bar.executions,
             "updated_at": bar.updated_at,
         },
     }
+
+
+@app.post("/api/execution")
+async def add_execution(execution_data: dict):
+    """添加 PM tool 执行记录"""
+    execution_entry = {
+        "timestamp": execution_data.get("timestamp", datetime.now().isoformat()),
+        "agent": execution_data.get("agent", "Portfolio Manager"),
+        "tool_name": execution_data.get("tool_name", ""),
+        "tool_call_id": execution_data.get("tool_call_id", ""),
+        "args": execution_data.get("args", {}),
+        "result": execution_data.get("result", {}),
+        "is_error": execution_data.get("is_error", False),
+    }
+    symbol = execution_data.get("symbol", state.current_symbol)
+    interval = execution_data.get("interval", state.current_interval)
+    open_time_ms = execution_data.get("open_time_ms")
+    if open_time_ms is None and state.current_kline and state.current_kline.get("open_time_ms") is not None:
+        open_time_ms = state.current_kline["open_time_ms"]
+
+    state.executions.append(execution_entry)
+    if len(state.executions) > 500:
+        state.executions = state.executions[-500:]
+
+    if open_time_ms is not None:
+        bar_time = state.current_kline.get("time") if state.current_kline else execution_entry["timestamp"]
+        await journal_storage.upsert_bar(
+            symbol=symbol,
+            interval=interval,
+            open_time_ms=int(open_time_ms),
+            bar_time=bar_time,
+            update={"execution": execution_entry},
+        )
+
+    await state.send_update("execution", execution_entry)
+    return {"success": True}
 
 
 @app.post("/api/reset")
@@ -643,6 +683,7 @@ async def reset_data():
     state.klines = []
     state.decisions = []
     state.logs = []
+    state.executions = []
     state.phase_status = {}
     state.agent_reports = {}
     state.current_kline = None
@@ -749,6 +790,37 @@ async def send_report(
                 "agent": agent,
                 "content": content,
                 "phase": phase,
+                "open_time_ms": open_time_ms,
+                "symbol": symbol,
+                "interval": interval,
+            })
+    except Exception:
+        pass
+
+
+async def send_execution(
+    *,
+    agent: str,
+    tool_name: str,
+    tool_call_id: str,
+    args: dict,
+    result: dict,
+    is_error: bool = False,
+    open_time_ms: Optional[int] = None,
+    symbol: Optional[str] = None,
+    interval: Optional[str] = None,
+) -> None:
+    """发送 Agent tool 执行记录"""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=1.0) as client:
+            await client.post(f"{_api_base_url}/api/execution", json={
+                "agent": agent,
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "args": args,
+                "result": result,
+                "is_error": is_error,
                 "open_time_ms": open_time_ms,
                 "symbol": symbol,
                 "interval": interval,

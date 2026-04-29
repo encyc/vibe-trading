@@ -5,7 +5,7 @@
 """
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional
@@ -14,13 +14,12 @@ import uuid
 from vibe_trading.data_sources.binance_client import (
     BinanceClient,
     BinanceConfig,
-    Order,
+    Position,
     OrderSide,
     OrderType,
-    Position,
     PositionSide,
-    BinanceEnvironment,
 )
+from vibe_trading.config.binance_config import BinanceEnvironment
 from vibe_trading.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -29,6 +28,7 @@ logger = logging.getLogger(__name__)
 class TradingMode(str, Enum):
     """交易模式"""
     PAPER = "paper"
+    TESTNET = "testnet"
     LIVE = "live"
 
 
@@ -277,7 +277,7 @@ class BinanceOrderExecutor(OrderExecutor):
             timestamp = int(datetime.now().timestamp() * 1000)
 
             logger.info("=" * 60)
-            logger.info(f"🚨 [DRY-RUN] 订单打印 (不会实际执行)")
+            logger.info("🚨 [DRY-RUN] 订单打印 (不会实际执行)")
             logger.info(f"  Symbol: {symbol}")
             logger.info(f"  Side: {side.value}")
             logger.info(f"  Type: {order_type.value}")
@@ -364,15 +364,29 @@ def create_executor(mode: TradingMode = TradingMode.PAPER, dry_run: bool = False
     if mode == TradingMode.PAPER:
         logger.info("Creating Paper Trading executor")
         return PaperOrderExecutor()
+    elif mode == TradingMode.TESTNET:
+        if not settings.binance_testnet_api_key or not settings.binance_testnet_api_secret:
+            raise ValueError("BINANCE_TESTNET_API_KEY and BINANCE_TESTNET_API_SECRET are required for testnet trading")
+
+        logger.info("Creating Binance Testnet executor")
+        return BinanceOrderExecutor(
+            api_key=settings.binance_testnet_api_key,
+            api_secret=settings.binance_testnet_api_secret,
+            testnet=True,
+            dry_run=dry_run,
+        )
     else:
         if dry_run:
             logger.info("Creating Binance Live executor (DRY-RUN mode - orders will be printed but not executed)")
         else:
             logger.info("Creating Binance Live executor (orders will be executed)")
 
+        if not settings.binance_api_key or not settings.binance_api_secret:
+            raise ValueError("BINANCE_API_KEY and BINANCE_API_SECRET are required for live trading")
+
         return BinanceOrderExecutor(
             api_key=settings.binance_api_key,
             api_secret=settings.binance_api_secret,
-            testnet=settings.trading_mode == "paper",
+            testnet=False,
             dry_run=dry_run,
         )

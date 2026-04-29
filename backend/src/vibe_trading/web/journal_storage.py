@@ -24,6 +24,7 @@ class BarJournal:
     decision: Optional[Dict[str, Any]]
     reports: Dict[str, Dict[str, str]]
     logs: list[Dict[str, Any]]
+    executions: list[Dict[str, Any]]
     updated_at: str
 
 
@@ -62,11 +63,18 @@ class DecisionJournalStorage:
                     decision_json TEXT,
                     reports_json TEXT NOT NULL,
                     logs_json TEXT NOT NULL,
+                    executions_json TEXT NOT NULL DEFAULT '[]',
                     updated_at TEXT NOT NULL,
                     UNIQUE(symbol, interval, open_time_ms)
                 )
                 """
             )
+            columns = await conn.execute("PRAGMA table_info(bar_decision_journal)")
+            column_names = {row[1] for row in await columns.fetchall()}
+            if "executions_json" not in column_names:
+                await conn.execute(
+                    "ALTER TABLE bar_decision_journal ADD COLUMN executions_json TEXT NOT NULL DEFAULT '[]'"
+                )
             await conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_bar_decision_journal_symbol_interval_time
@@ -93,6 +101,7 @@ class DecisionJournalStorage:
                 "decision": None,
                 "reports": {},
                 "logs": [],
+                "executions": [],
             }
         else:
             payload = {
@@ -101,6 +110,7 @@ class DecisionJournalStorage:
                 "decision": existing.decision,
                 "reports": existing.reports,
                 "logs": existing.logs,
+                "executions": existing.executions,
             }
 
         if "kline" in update and update["kline"] is not None:
@@ -125,6 +135,10 @@ class DecisionJournalStorage:
             # bound log size per bar to keep record compact
             payload["logs"] = payload["logs"][-120:]
 
+        if "execution" in update and update["execution"] is not None:
+            payload["executions"].append(update["execution"])
+            payload["executions"] = payload["executions"][-40:]
+
         updated_at = datetime.now().isoformat()
 
         async with aiosqlite.connect(self.db_path) as conn:
@@ -133,8 +147,8 @@ class DecisionJournalStorage:
                 INSERT INTO bar_decision_journal (
                     symbol, interval, open_time_ms, bar_time,
                     kline_json, phase_status_json, decision_json,
-                    reports_json, logs_json, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    reports_json, logs_json, executions_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(symbol, interval, open_time_ms)
                 DO UPDATE SET
                     bar_time = excluded.bar_time,
@@ -143,6 +157,7 @@ class DecisionJournalStorage:
                     decision_json = excluded.decision_json,
                     reports_json = excluded.reports_json,
                     logs_json = excluded.logs_json,
+                    executions_json = excluded.executions_json,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -155,6 +170,7 @@ class DecisionJournalStorage:
                     json.dumps(payload["decision"], ensure_ascii=False) if payload["decision"] is not None else None,
                     json.dumps(payload["reports"], ensure_ascii=False),
                     json.dumps(payload["logs"], ensure_ascii=False),
+                    json.dumps(payload["executions"], ensure_ascii=False),
                     updated_at,
                 ),
             )
@@ -167,7 +183,7 @@ class DecisionJournalStorage:
                 """
                 SELECT symbol, interval, open_time_ms, bar_time,
                        kline_json, phase_status_json, decision_json,
-                       reports_json, logs_json, updated_at
+                       reports_json, logs_json, executions_json, updated_at
                 FROM bar_decision_journal
                 WHERE symbol = ? AND interval = ? AND open_time_ms = ?
                 LIMIT 1
@@ -189,5 +205,6 @@ class DecisionJournalStorage:
             decision=json.loads(row["decision_json"]) if row["decision_json"] else None,
             reports=json.loads(row["reports_json"] or "{}"),
             logs=json.loads(row["logs_json"] or "[]"),
+            executions=json.loads(row["executions_json"] or "[]"),
             updated_at=row["updated_at"],
         )

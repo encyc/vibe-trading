@@ -5,7 +5,7 @@ K-line triggered main trading thread using full coordinator.
 """
 import asyncio
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from datetime import datetime
 
 from vibe_trading.coordinator.trading_coordinator import (
@@ -17,7 +17,7 @@ from vibe_trading.agents.messaging import get_message_broker, MessageType
 from vibe_trading.websocket_manager import get_websocket_manager
 from vibe_trading.data_sources.binance_client import BinanceClient, KlineInterval
 from vibe_trading.config.binance_config import BinanceConfig, BinanceEnvironment
-from vibe_trading.config.settings import get_settings
+from vibe_trading.execution.order_executor import OrderExecutor
 from pi_logger import get_logger, info
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ class OnBarThread:
         symbol: str = "BTCUSDT",
         interval: str = "30m",
         thread_manager: Optional[ThreadManager] = None,
+        executor: Optional[OrderExecutor] = None,
     ):
         """
         Initialize On Bar thread
@@ -48,6 +49,7 @@ class OnBarThread:
         self.symbol = symbol
         self.interval = interval
         self.thread_manager = thread_manager or get_thread_manager()
+        self.executor = executor
         
         # Coordinator
         self._coordinator: Optional[TradingCoordinator] = None
@@ -71,6 +73,7 @@ class OnBarThread:
         self._coordinator = TradingCoordinator(
             symbol=self.symbol,
             interval=self.interval,
+            executor=self.executor,
         )
         await self._coordinator.initialize()
         
@@ -132,11 +135,11 @@ class OnBarThread:
             )
 
             if not raw_klines:
-                info(f"未获取到历史K线数据", tag="OnBar")
+                info("未获取到历史K线数据", tag="OnBar")
                 return
 
             # 推送到 web server
-            from vibe_trading.web.server import send_kline, state
+            from vibe_trading.web.server import state
 
             # 清空 web state 的旧数据
             state.klines = []
@@ -170,12 +173,12 @@ class OnBarThread:
             await calculate_indicators()
 
             # 通知前端刷新
-            from vibe_trading.web.server import ConnectionState
             await state.send_update("init", {
                 "klines": state.klines,
                 "indicators": state.indicators,
                 "decisions": state.decisions,
                 "logs": state.logs[-100:],
+                "executions": state.executions[-100:],
                 "phase_status": state.phase_status,
                 "agent_reports": state.agent_reports,
             })

@@ -14,13 +14,13 @@ from typing import Dict, List, Optional
 
 from pi_logger import get_logger, info, success, warning, separator
 
-from vibe_trading.coordinator.thread_manager import ThreadManager, get_thread_manager
-from vibe_trading.coordinator.shared_state import SharedStateManager, get_shared_state_manager
-from vibe_trading.coordinator.event_queue import EventQueue, get_event_queue
+from vibe_trading.coordinator.thread_manager import get_thread_manager
+from vibe_trading.coordinator.shared_state import get_shared_state_manager
+from vibe_trading.coordinator.event_queue import get_event_queue
 from vibe_trading.coordinator.emergency_handler import EmergencyHandler
 from vibe_trading.threads.macro_thread import MacroAnalysisThread
 from vibe_trading.threads.onbar_thread import OnBarThread
-from vibe_trading.triggers.trigger_registry import TriggerRegistry, get_trigger_registry
+from vibe_trading.triggers.trigger_registry import get_trigger_registry
 from vibe_trading.triggers.price_triggers import (
     PriceDropTrigger,
     PriceSpikeTrigger,
@@ -31,6 +31,7 @@ from vibe_trading.triggers.risk_triggers import (
 )
 from vibe_trading.triggers.base_trigger import TriggerContext
 from vibe_trading.tools import market_data_tools
+from vibe_trading.execution.order_executor import OrderExecutor
 
 logger = logging.getLogger(__name__)
 log = get_logger("MultiThreadMain")
@@ -47,6 +48,7 @@ class MultiThreadedTradingSystem:
         self,
         symbol: str = "BTCUSDT",
         interval: str = "30m",
+        executor: Optional[OrderExecutor] = None,
     ):
         """
         Initialize multi-threaded trading system
@@ -57,6 +59,7 @@ class MultiThreadedTradingSystem:
         """
         self.symbol = symbol
         self.interval = interval
+        self.executor = executor
         
         # Core components
         self.thread_manager = get_thread_manager()
@@ -99,6 +102,7 @@ class MultiThreadedTradingSystem:
             symbol=self.symbol,
             interval=self.interval,
             thread_manager=self.thread_manager,
+            executor=self.executor,
         )
         await self.onbar_thread.initialize()
         

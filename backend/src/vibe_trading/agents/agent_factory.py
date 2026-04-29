@@ -3,17 +3,15 @@ Agent 工厂基类
 
 提供创建交易 Agent 的基础类。
 """
-import asyncio
 import logging
 import sys
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from pi_agent_core import Agent, AgentOptions, AgentEvent
 from pi_agent_core.types import TextContent, ThinkingContent
 from pi_ai.config import get_model_from_config
-from pydantic import BaseModel
 from pi_logger import get_logger
 
-from vibe_trading.config.agent_config import AgentConfig, AgentRole
+from vibe_trading.config.agent_config import AgentConfig
 from vibe_trading.config.prompts import get_agent_prompt
 from vibe_trading.config.settings import get_settings
 
@@ -114,6 +112,7 @@ class ToolContext:
         self.interval = interval
         self.storage = storage
         self.executor = executor
+        self.current_bar_open_time_ms = None
 
 
 async def create_trading_agent(
@@ -198,7 +197,7 @@ def format_market_data_for_agent(data: dict) -> str:
 
     if "latest" in data:
         latest = data["latest"]
-        result.append(f"\nLatest Candle:")
+        result.append("\nLatest Candle:")
         result.append(f"  Open: {latest['open']}")
         result.append(f"  High: {latest['high']}")
         result.append(f"  Low: {latest['low']}")
@@ -207,7 +206,7 @@ def format_market_data_for_agent(data: dict) -> str:
 
     if "indicators" in data:
         ind = data["indicators"]
-        result.append(f"\nTechnical Indicators:")
+        result.append("\nTechnical Indicators:")
         if ind.get("rsi"):
             result.append(f"  RSI: {ind['rsi']:.2f}")
         if ind.get("macd"):
