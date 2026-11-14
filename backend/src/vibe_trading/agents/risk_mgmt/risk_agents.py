@@ -5,8 +5,7 @@
 """
 from typing import Dict, List, Optional
 
-from pi_agent_core import Agent, AgentOptions
-from vibe_trading.config.llm_config import get_model_from_config, make_get_api_key
+from vibe_trading.runtime import TradingAgent
 from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
@@ -37,7 +36,7 @@ class RiskAnalystAgent:
 
         self.config = config
         self._system_prompt = RISK_PROMPTS[config.role]
-        self._agent: Optional[Agent] = None
+        self._agent: Optional[TradingAgent] = None
         self._tool_context: Optional[ToolContext] = None
 
     async def initialize(self, tool_context: ToolContext, enable_streaming: bool = True) -> None:
@@ -101,15 +100,10 @@ As a {self.config.name}, please provide:
         await self._agent.prompt(prompt)
 
         # 获取响应
-        messages = self._agent.state.messages
+        messages = self._agent.messages
         if messages:
-            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-            if last_assistant:
-                content = last_assistant[-1].content
-                if isinstance(content, list):
-                    response = "".join(getattr(c, "text", str(c)) for c in content)
-                else:
-                    response = str(content)
+            response = self._agent.last_assistant_text()
+            if response:
                 
                 # 记录风控分析结果到日志
                 logger.info(f"{self.config.name} Risk Assessment: {response}", tag="Risk")

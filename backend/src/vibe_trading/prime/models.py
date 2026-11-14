@@ -191,7 +191,7 @@ class SubagentConfig:
 @dataclass
 class PrimeAgentConfig:
     """Prime Agent完整配置"""
-    # pi_agent_core配置
+    # agent 运行时配置
     system_prompt: str = """你是Prime Agent，是一个中央决策和监控系统。
 
 职责：

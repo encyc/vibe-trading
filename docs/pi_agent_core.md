@@ -1,5 +1,11 @@
 # pi_agent_core 框架详解
 
+> ⚠️ **历史文档（已停止维护）**
+>
+> 本项目已从 `pi_agent_core` + `pi_ai` 迁移到 [`zenagent`](zenagent_kernel.md) kernel。
+> 现有代码不再 import 本文描述的模块；本文仅作为迁移前的参考资料保留。
+> 当前实现见 [`docs/zenagent_kernel.md`](zenagent_kernel.md)。
+
 > 基于 badlogic/pi-mono 的 @mariozechner/pi-agent-core 包进行的 Python 复刻
 >
 > 原始项目: https://github.com/badlogic/pi-mono

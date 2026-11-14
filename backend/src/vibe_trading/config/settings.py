@@ -69,7 +69,7 @@ class Settings:
     reflection_maturation_bars: int = 12  # 决策快照多少根 bar 后回看评估
 
     # LLM 配置 - 使用 vibe_trading/config/llm_config.py 加载的 llm.yaml
-    llm_config_name: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "deepseek_v4_flash_free"))
+    llm_config_name: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "glm_5_3_flash"))
 
     # 日志配置
     log_level: LogLevel = LogLevel.INFO
@@ -114,7 +114,7 @@ class Settings:
             memory_storage_path=os.getenv("MEMORY_STORAGE_PATH", "./data/memory_storage.pkl"),
             reflection_benchmark_symbol=os.getenv("REFLECTION_BENCHMARK_SYMBOL", "BTCUSDT"),
             reflection_maturation_bars=int(os.getenv("REFLECTION_MATURATION_BARS", "12")),
-            llm_config_name=os.getenv("LLM_MODEL", "deepseek_v4_flash_free"),
+            llm_config_name=os.getenv("LLM_MODEL", "glm_5_3_flash"),
             log_level=LogLevel(os.getenv("LOG_LEVEL", "INFO")),
             log_file=os.getenv("LOG_FILE"),
             enable_file_logging=os.getenv("ENABLE_FILE_LOGGING", "true").lower() == "true",

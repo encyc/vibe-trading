@@ -6,15 +6,13 @@ Agent 工厂基类
 import logging
 import sys
 from typing import List, Optional
-from pi_agent_core import Agent, AgentOptions, AgentEvent
-from pi_ai import ThinkingContent
-from pi_agent_core.types import TextContent
-from vibe_trading.config.llm_config import get_model_from_config, make_get_api_key
+from zenagent.events import AgentEvent
+from zenagent.types import TextContent, ThinkingContent
 from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig
 from vibe_trading.config.prompts import get_agent_prompt
-from vibe_trading.config.settings import get_settings
+from vibe_trading.runtime import TradingAgent
 
 logger = logging.getLogger(__name__)
 log = get_logger("AgentFactory")
@@ -31,6 +29,8 @@ class StreamPrinter:
         self._line_buffer = ""
         self._is_thinking = False
         self._started = False
+        #: 已打印的 thinking 字符数（增量打印，避免每次 update 重打全文）
+        self._printed_thinking_len = 0
 
     def on_event(self, event: AgentEvent, cancel_event=None):
         """处理 Agent 事件"""
@@ -40,6 +40,7 @@ class StreamPrinter:
             self._line_buffer = ""
             self._is_thinking = False
             self._started = True
+            self._printed_thinking_len = 0
             # 不打印开始消息，直接开始流式输出
 
         elif event.type == "message_update":
@@ -78,8 +79,12 @@ class StreamPrinter:
 
                 elif isinstance(content, ThinkingContent) and content.thinking:
                     thinking_text = content.thinking
-                    # Thinking 内容用灰色显示
-                    sys.stdout.write(f"\n🤔 {thinking_text}")
+                    # 只打印新增部分：message_update 每次送的是完整快照
+                    new_thinking = thinking_text[self._printed_thinking_len:]
+                    if new_thinking:
+                        self._printed_thinking_len = len(thinking_text)
+                        prefix = "\n🤔 " if self._printed_thinking_len == len(new_thinking) else ""
+                        sys.stdout.write(f"{prefix}{new_thinking}")
                     sys.stdout.flush()
 
         elif event.type == "message_end":
@@ -90,7 +95,7 @@ class StreamPrinter:
             self._started = False
 
 
-def setup_streaming(agent: Agent, agent_name: str, color: str = "cyan") -> None:
+def setup_streaming(agent: TradingAgent, agent_name: str, color: str = "cyan") -> None:
     """为 Agent 设置流式打印"""
     printer = StreamPrinter(agent_name, color)
     agent.subscribe(printer.on_event)
@@ -125,7 +130,7 @@ async def create_trading_agent(
     additional_tools: Optional[List] = None,
     enable_streaming: bool = False,
     agent_name: Optional[str] = None,
-) -> Agent:
+) -> TradingAgent:
     """
     创建交易 Agent
 
@@ -137,27 +142,20 @@ async def create_trading_agent(
         agent_name: Agent 名称（用于流式打印）
 
     Returns:
-        配置好的 Agent 实例
+        配置好的 TradingAgent 实例
     """
-    settings = get_settings()
-
-    # pi-py 移除了 ModelRouter；模型由 llm.yaml 直接选定，api_key 通过 get_api_key 注入。
-    model = get_model_from_config(settings.llm_config_name)
-    get_api_key = make_get_api_key()
-
     # 获取 System Prompt
     system_prompt = get_agent_prompt(config.role)
 
-    # ========== 改进: 添加AgentTools支持 ==========
-    from pi_agent_core import AgentTool
+    # role 可能是枚举，也可能是裸字符串（历史调用点两种都有）；归一化后
+    # 既用于工具分配，也用于 runtime 的角色标识。
+    role_value = config.role.value if hasattr(config.role, "value") else str(config.role)
 
     # 获取预定义的tools - 根据角色分配专门工具
-    agent_tools: List[AgentTool] = []
+    agent_tools: List = []
     try:
         from vibe_trading.agents.agent_tools import get_tools_for_agent
 
-        # 使用角色的值获取对应工具（config.role.value 或直接用 config.role）
-        role_value = config.role.value if hasattr(config.role, 'value') else config.role
         agent_tools = get_tools_for_agent(role_value)
         logger.info(f"Loaded {len(agent_tools)} tools for {config.name} (role: {role_value})")
     except Exception as e:
@@ -167,16 +165,13 @@ async def create_trading_agent(
     if additional_tools:
         agent_tools.extend(additional_tools)
 
-    # 创建 Agent（pi-py：model + tools + get_api_key）
-    agent = Agent(
-        AgentOptions(
-            initial_state={
-                "system_prompt": system_prompt,
-                "model": model,
-                "tools": agent_tools,  # ========== 设置tools ==========
-            },
-            get_api_key=get_api_key,
-        )
+    agent = TradingAgent(
+        role=role_value,
+        system_prompt=system_prompt,
+        tools=agent_tools,
+        # 温度来自 AgentConfig；迁移前这个字段从未被读取，现在是真正生效的
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
     )
 
     # 设置流式打印

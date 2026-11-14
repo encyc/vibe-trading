@@ -6,7 +6,7 @@ Subagent Factory - Subagent工厂
 import asyncio
 from typing import Dict, List, Optional
 
-from pi_agent_core import Agent
+from vibe_trading.runtime import TradingAgent
 from pi_logger import get_logger
 
 from vibe_trading.agents.analysts.technical_analyst import TechnicalAnalystAgent
@@ -256,7 +256,7 @@ class SubagentFactory:
         agent_id: str,
         symbol: str = "BTCUSDT",
         interval: str = "30m",
-    ) -> Optional[Agent]:
+    ) -> Optional[TradingAgent]:
         """
         创建Agent实例
 

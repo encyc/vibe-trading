@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Vibe Trading is a multi-agent cryptocurrency trading system powered by Large Language Models (LLMs). The system uses a collaborative agent architecture with 12 specialized agents working across 4 phases to make trading decisions.
 
 **Core Architecture:**
-- **pi_agent_core**: Agent framework with dual-loop message processing engine
-- **pi_ai**: LLM abstraction layer supporting multiple providers (OpenAI, Anthropic, Google, custom endpoints)
+- **zenagent** (PyPI `zenagent-py`): agent kernel — async-generator loop, provider adapters, typed messages
+- **vibe_trading.runtime**: our wrapper over the kernel — the only place that imports `zenagent`
 - **pi_logger**: Structured logging system with colorized console output and file logging
 - **vibe_trading**: Main trading application with agents, coordinators, data sources, and execution
 
@@ -92,7 +92,7 @@ make test-ws          # Test WebSocket connection
 - Contains multiple model configurations (glm_4_7, iflow, longcat, etc.)
 - `use_llm`: Default model to use
 - Loaded via `vibe_trading/config/llm_config.py` (`get_model_from_config`); api_key injected via `AgentOptions(get_api_key=...)`.
-- (Note: pi-py removed the `ModelRouter` / `model_router` / `agent_model_mapping` features; model selection is now by explicit `Model` instance.)
+- (Note: `ModelRouter` / `model_router` / `agent_model_mapping` are gone; model selection is by explicit `Model` instance built in `config/llm_config.py`.)
 
 **Agent Configuration (backend/src/vibe_trading/config/agent_config.py):**
 - `AgentRole`: Enum of all 12 agent roles
@@ -102,16 +102,18 @@ make test-ws          # Test WebSocket connection
 ## Key Architecture Patterns
 
 ### Agent System
-- All agents inherit from `pi_agent_core.Agent` and use `agent_loop()` for execution
+- Agents are driven by `vibe_trading.runtime.TradingAgent`, which wraps `zenagent.Agent`
 - Agents are created via `agent_factory.create_trading_agent()` with tool assignment
 - Use `get_logger()` from `pi_logger` for logging (NOT standard `logging.getLogger()`)
 - The logger supports `tag` parameter: `logger.info("message", tag="AgentName")`
 
 ### Tool System
-- 23 tools defined across 4 categories: technical, fundamental, sentiment, market data
-- Tools are Pydantic models with `@tool` decorator
-- Assigned to agents based on role in `agent_factory.py`
-- Tools can be called by LLM via function calling
+- 23 tools across 4 categories: technical, fundamental, sentiment, market data
+- Each tool = a Pydantic params class + an async `execute(name, args, extra, callback)`
+  function; `runtime.make_tool()` converts the pair into a `zenagent` AgentTool
+- Assigned to agents by role in `agent_tools.get_tools_for_agent()`
+- `submit_trade_order` is `execution_mode="sequential"` so it never runs
+  concurrently with other tools in the same batch
 
 ### State Management
 - `SharedStateManager`: Thread-safe shared state storage

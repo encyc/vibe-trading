@@ -74,3 +74,7 @@ docs/INTRO_ZHIHU*
 checkpoints/
 backtest_results/
 .zcode/
+
+# 运行时生成（记忆缓存 / zenagent 项目状态）
+data/
+.zenagent/

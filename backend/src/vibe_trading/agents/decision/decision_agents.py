@@ -6,8 +6,7 @@
 import asyncio
 from typing import Any, Dict, List, Optional
 
-from pi_agent_core import Agent, AgentOptions
-from vibe_trading.config.llm_config import get_model_from_config, make_get_api_key
+from vibe_trading.runtime import TradingAgent
 from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
@@ -39,7 +38,7 @@ class TraderAgent:
             role=AgentRole.TRADER,
             temperature=0.6,
         )
-        self._agent: Optional[Agent] = None
+        self._agent: Optional[TradingAgent] = None
         self._tool_context: Optional[ToolContext] = None
 
         # 交易工具
@@ -199,15 +198,10 @@ class TraderAgent:
         await self._agent.prompt(prompt)
 
         # 获取LLM响应并添加到执行说明
-        messages = self._agent.state.messages
+        messages = self._agent.messages
         if messages:
-            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-            if last_assistant:
-                content = last_assistant[-1].content
-                if isinstance(content, list):
-                    llm_response = "".join(getattr(c, "text", str(c)) for c in content)
-                else:
-                    llm_response = str(content)
+            llm_response = self._agent.last_assistant_text()
+            if llm_response:
                 trading_plan.execution_notes.append(f"\nLLM分析:\n{llm_response}")
         
         # 记录交易计划到日志
@@ -301,7 +295,7 @@ class PortfolioManagerAgent:
             role=AgentRole.PORTFOLIO_MANAGER,
             temperature=0.4,
         )
-        self._agent: Optional[Agent] = None
+        self._agent: Optional[TradingAgent] = None
         self._tool_context: Optional[ToolContext] = None
         self._memory: Optional[object] = None
         self._execution_tool_args: Dict[str, Any] = {}
@@ -318,11 +312,7 @@ class PortfolioManagerAgent:
         self._tool_context = tool_context
         self._memory = memory
 
-        # ========== 模型 + 工具（pi-py：无 ModelRouter） ==========
-        settings = get_settings()
-        model = get_model_from_config(settings.llm_config_name)
-        get_api_key = make_get_api_key()
-
+        # ========== 工具（模型与凭证由 runtime 装配） ==========
         # 获取tools - 使用角色特定的工具集合
         agent_tools = []
         try:
@@ -356,16 +346,12 @@ class PortfolioManagerAgent:
         if memory_context:
             system_prompt += "\n\n" + memory_context
 
-        # 创建Agent（pi-py：model + tools + get_api_key）
-        self._agent = Agent(
-            AgentOptions(
-                initial_state={
-                    "system_prompt": system_prompt,
-                    "model": model,
-                    "tools": agent_tools,
-                },
-                get_api_key=get_api_key,
-            )
+        self._agent = TradingAgent(
+            role="portfolio_manager",
+            system_prompt=system_prompt,
+            tools=agent_tools,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
         )
 
         # 设置流式打印
@@ -481,15 +467,10 @@ class PortfolioManagerAgent:
 
         # 获取LLM响应
         decision_text = ""
-        messages = self._agent.state.messages
+        messages = self._agent.messages
         if messages:
-            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-            if last_assistant:
-                content = last_assistant[-1].content
-                if isinstance(content, list):
-                    decision_text = "".join(getattr(c, "text", str(c)) for c in content)
-                else:
-                    decision_text = str(content)
+            decision_text = self._agent.last_assistant_text()
+            if decision_text:
                 
                 # 记录投资组合经理决策到日志
                 logger.info(f"Portfolio Manager Decision: {decision_text}", tag="Decision")

@@ -6,8 +6,7 @@ Analyzes macro environment (trends, sentiment, major events).
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from pi_agent_core import Agent, AgentOptions
-from vibe_trading.config.llm_config import get_model_from_config, make_get_api_key
+from vibe_trading.runtime import TradingAgent
 from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
@@ -45,7 +44,7 @@ class MacroAnalysisAgent:
         
         self.config = config
         self._system_prompt = self._get_macro_prompt()
-        self._agent: Optional[Agent] = None
+        self._agent: Optional[TradingAgent] = None
         self._tool_context: Optional[ToolContext] = None
     
     def _get_macro_prompt(self) -> str:
@@ -103,20 +102,14 @@ Your analysis should help guide trading decisions by providing context about the
             enable_streaming: Whether to enable streaming
         """
         self._tool_context = tool_context
-        
-        # Get model
-        model = get_model_from_config(self.config.model)
 
         # Create agent with macro prompt
-        agent_options = AgentOptions(
-            initial_state={
-                "system_prompt": self._system_prompt,
-                "model": model,
-            },
-            get_api_key=make_get_api_key(),
+        self._agent = TradingAgent(
+            role="macro_agent",
+            system_prompt=self._system_prompt,
+            tools=[],
         )
-        
-        self._agent = Agent(agent_options)
+
         logger.info("MacroAnalysisAgent initialized")
     
     async def analyze(self, market_data: Dict) -> Dict:
@@ -133,37 +126,28 @@ Your analysis should help guide trading decisions by providing context about the
             raise RuntimeError("Agent not initialized. Call initialize() first.")
         
         # Clear previous messages for fresh analysis
-        self._agent.clear_messages()
-        
+        self._agent.reset()
+
         # Build analysis prompt
         prompt = self._build_analysis_prompt(market_data)
-        
+
         # Send prompt to agent
         await self._agent.prompt(prompt)
-        
+
         # Wait for agent to complete
         await self._agent.wait_for_idle()
-        
+
         # Get response from agent message history
-        messages = self._agent.state.messages
-        if messages:
-            # Get the last assistant message
-            last_message = messages[-1]
-            if hasattr(last_message, 'content'):
-                # Extract text from message content
-                response_text = ""
-                for content in last_message.content:
-                    if hasattr(content, 'text'):
-                        response_text += content.text
-                
-                # 记录宏观分析完整响应到日志
-                logger.info(f"Macro Analysis Response: {response_text}", tag="Macro")
-                
-                # Parse response
-                analysis = self._parse_analysis(response_text)
-                
-                logger.info(f"Macro analysis completed: {analysis['market_regime']} (confidence={analysis['confidence']:.2f})")
-                return analysis
+        response_text = self._agent.last_assistant_text()
+        if response_text:
+            # 记录宏观分析完整响应到日志
+            logger.info(f"Macro Analysis Response: {response_text}", tag="Macro")
+
+            # Parse response
+            analysis = self._parse_analysis(response_text)
+
+            logger.info(f"Macro analysis completed: {analysis['market_regime']} (confidence={analysis['confidence']:.2f})")
+            return analysis
         
         # Return default analysis if no response
         logger.warning("No response from agent, returning default analysis")

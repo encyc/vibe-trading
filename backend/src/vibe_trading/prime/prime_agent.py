@@ -3,15 +3,14 @@ Prime Agent - 中央决策和监控系统
 
 采用事件驱动的Hub-and-Spoke架构，监控所有Subagent并做出最终决策。
 
-基于pi_agent_core.Agent框架构建，复用其状态管理、事件系统和消息处理能力。
+持有 vibe_trading.runtime.TradingAgent，复用其状态管理、事件系统和消息处理能力。
 """
 import asyncio
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pi_agent_core import Agent, AgentOptions, AgentMessage as CoreAgentMessage
-from pi_ai import TextContent, UserMessage
+from zenagent.types import Message as CoreAgentMessage
 from pi_logger import get_logger, info, success, warning, error
 
 from vibe_trading.agents.messaging import AgentMessage, MessageType
@@ -27,6 +26,7 @@ from vibe_trading.prime.models import (
 )
 from vibe_trading.prime.decision_aggregator import DecisionAggregator
 from vibe_trading.prime.subagent_factory import SubagentFactory
+from vibe_trading.runtime import TradingAgent, is_assistant, message_text
 
 logger = get_logger(__name__)
 
@@ -41,11 +41,11 @@ class PrimeAgentStatus(str, Enum):
     ERROR = "error"
 
 
-class PrimeAgent(Agent):
+class PrimeAgent:
     """
     Prime Agent - 中央决策和监控
 
-    基于pi_agent_core.Agent构建，扩展以下能力：
+    基于 TradingAgent 构建，扩展以下能力：
     1. 监控所有Subagent的消息（通过MessageChannel）
     2. 多层次约束检查（Harness Engineering）
     3. 做出最终交易决策
@@ -53,7 +53,7 @@ class PrimeAgent(Agent):
     5. 系统状态管理和监控
 
     架构设计：
-    - 继承Agent：复用状态管理、事件系统、prompt/steer/follow_up机制
+    - 持有 TradingAgent：复用其状态管理、事件系统和 prompt/steer 机制
     - MessageChannel：作为Subagent消息的输入源
     - 监控循环：持续从Channel读取消息并通过prompt()处理
     - Harness：多层次约束检查
@@ -66,23 +66,14 @@ class PrimeAgent(Agent):
         Args:
             config: Prime Agent配置
         """
-        # 创建AgentOptions
-        # pi-py: model 不能为 None（AgentState 默认 _DEFAULT_MODEL，但显式 None 会破坏流式调用）。
-        # Prime Agent 使用 llm.yaml 默认模型；api_key 通过 get_api_key 注入。
-        # 注：enable_credit_tracking 在 pi-py 中被 **extra 捕获但不再消费（credit tracking 未移植）。
-        from vibe_trading.config.llm_config import get_model_from_config, make_get_api_key
-
-        agent_options = AgentOptions(
-            initial_state={
-                "system_prompt": config.system_prompt,
-                "model": get_model_from_config(),
-            },
-            get_api_key=make_get_api_key(),
-            enable_credit_tracking=config.enable_credit_tracking,
+        # Prime Agent 用 llm.yaml 的默认模型；模型与凭证由 runtime 装配。
+        # 注：enable_credit_tracking 在 zenagent 里没有对应能力（catalog 未收录的
+        # 模型 cost 恒为 0），配置项保留但不再消费。
+        self._agent = TradingAgent(
+            role="prime",
+            system_prompt=config.system_prompt,
+            tools=[],
         )
-
-        # 初始化基类Agent
-        super().__init__(agent_options)
 
         self.config = config  # 保存完整配置
         self.prime_config = config.prime_config
@@ -124,7 +115,7 @@ class PrimeAgent(Agent):
         }
 
         # 订阅自己的事件来处理决策
-        self.subscribe(self._handle_agent_event)
+        self._agent.subscribe(self._handle_agent_event)
 
         logger.info(
             f"Prime Agent initialized: "
@@ -183,10 +174,10 @@ class PrimeAgent(Agent):
             success("Trading System stopped", tag="PRIME")
 
         # 取消当前运行的prompt
-        self.abort()
+        self._agent.abort()
 
         # 等待Agent完成当前操作
-        await self.wait_for_idle()
+        await self._agent.wait_for_idle()
 
         self.status = PrimeAgentStatus.STOPPED
         success("Prime Agent stopped", tag="PRIME")
@@ -547,7 +538,7 @@ class PrimeAgent(Agent):
         """
         通过Agent的prompt机制处理消息并做出决策
 
-        这里利用pi_agent_core的完整能力：
+        这里利用 TradingAgent 的完整能力：
         - prompt()：发送消息给Agent
         - agent_loop：处理消息流
         - 事件监听：通过_handle_agent_event捕获响应
@@ -558,22 +549,15 @@ class PrimeAgent(Agent):
         # 构建prompt文本
         prompt_text = self._format_message_as_prompt(message)
 
-        try:
-            # 等待Agent完成当前操作
-            await self.wait_for_idle()
+        # 运行中不能并发 prompt：按 is_running 判断后走 steering。
+        # （迁移前靠捕获 RuntimeError 并匹配异常文本，跨框架不可靠。）
+        if self._agent.is_running:
+            self._send_as_steering_message(message)
+            return
 
-            # 通过prompt()发送消息，触发Agent处理
-            await self.prompt(prompt_text)
-
-            # Agent的处理结果通过事件系统异步返回
-            # 实际的决策在_handle_agent_event中处理
-
-        except RuntimeError as e:
-            # Agent正在处理，使用steer发送消息
-            if "already processing" in str(e):
-                self._send_as_steering_message(message)
-            else:
-                raise
+        # 通过prompt()发送消息，触发Agent处理。
+        # Agent的处理结果通过事件系统异步返回，实际的决策在_handle_agent_event中处理。
+        await self._agent.prompt(prompt_text)
 
     def _format_message_as_prompt(self, message: AgentMessage) -> str:
         """
@@ -623,12 +607,8 @@ class PrimeAgent(Agent):
         Args:
             message: Subagent消息
         """
-        # pi-py: Message 联合仅允许 user/assistant/toolResult 角色（extra="forbid"）。
-        # steering 的语义是"运行中注入提示"，用 UserMessage 表达即可。
-        steering_msg = UserMessage(
-            content=[TextContent(text=self._format_message_as_prompt(message))]
-        )
-        self.steer(steering_msg)
+        # steering 的语义是"运行中注入提示"，zenagent 的 steer 直接收文本。
+        self._agent.steer(self._format_message_as_prompt(message))
 
     async def _handle_agent_event(self, event, cancel_event=None) -> None:
         """
@@ -639,13 +619,13 @@ class PrimeAgent(Agent):
         Args:
             event: Agent事件
         """
-        # 处理消息完成事件
+        # 处理消息完成事件（只关心助手回复）
         if event.type == "message_end":
             await self._process_agent_response(event.message)
 
-        # 处理Agent结束事件
+        # 处理Agent结束事件：zenagent 用 new_messages 携带本轮新增消息
         elif event.type == "agent_end":
-            for msg in event.messages:
+            for msg in event.new_messages or []:
                 await self._process_agent_response(msg)
 
     async def _process_agent_response(self, message: CoreAgentMessage) -> None:
@@ -655,14 +635,11 @@ class PrimeAgent(Agent):
         Args:
             message: Agent响应消息
         """
-        if getattr(message, "role", None) != "assistant":
+        if not is_assistant(message):
             return
 
-        # 提取文本内容
-        text_content = ""
-        for content in getattr(message, "content", []):
-            if hasattr(content, "text"):
-                text_content += content.text
+        # 提取文本内容（忽略思考块与工具调用）
+        text_content = message_text(message)
 
         # 简化版本：从文本中提取决策
         # TODO: 实现更精确的决策提取逻辑
@@ -887,13 +864,10 @@ class PrimeAgent(Agent):
             tag="PRIME|HARNESS",
         )
 
-        # 通过steer通知Agent（pi-py: UserMessage）
-        steering_msg = UserMessage(
-            content=[TextContent(
-                text=f"约束违规警告: {message.message_type.value} from {message.sender} 被约束系统阻止"
-            )]
+        # 通过steer通知Agent（zenagent 的 steer 收文本）
+        self._agent.steer(
+            f"约束违规警告: {message.message_type.value} from {message.sender} 被约束系统阻止"
         )
-        self.steer(steering_msg)
 
     async def _periodic_check(self) -> None:
         """定期检查"""
@@ -1011,12 +985,12 @@ class PrimeAgent(Agent):
             "constraint_statuses": await self.harness.get_all_constraint_statuses(),
         }
 
-        # 添加Agent状态（pi-py: AgentState.error_message，旧版叫 error）
+        # 添加Agent状态
         base_status["agent_state"] = {
-            "is_streaming": self.state.is_streaming,
-            "has_error": self.state.error_message is not None,
-            "error": self.state.error_message,
-            "message_count": len(self.state.messages),
+            "is_streaming": self._agent.is_running,
+            "has_error": self._agent.error_message is not None,
+            "error": self._agent.error_message,
+            "message_count": len(self._agent.messages),
         }
 
         return base_status

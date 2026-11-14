@@ -333,7 +333,7 @@ def prime(
     web_port: int = typer.Option(8000, help="--web-port: Web 监控界面端口"),
 ):
     """
-    启动Prime Agent监控模式（基于pi_agent_core的新架构）
+    启动Prime Agent监控模式（基于 zenagent kernel 的新架构）
 
     Prime Agent作为系统监控者和紧急仲裁者：
     - 运行三线程交易系统（Macro + OnBar + Event）
@@ -542,7 +542,7 @@ def status():
     table.add_column("项目", style="cyan")
     table.add_column("值", style="green")
 
-    table.add_row("可用架构", "三线程 (Macro + OnBar + Event), Prime Agent (pi_agent_core)")
+    table.add_row("可用架构", "三线程 (Macro + OnBar + Event), Prime Agent (zenagent)")
     table.add_row("交易模式", settings.trading_mode.value)
     table.add_row("交易对", ", ".join(settings.symbols))
     table.add_row("K线周期", settings.interval)

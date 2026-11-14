@@ -2,7 +2,28 @@
 
 基于大语言模型的多 Agent 协作加密货币量化交易系统。
 
-<img width="3444" height="1908" alt="9f79c5cd18a77d6471f97f785ef30a6d" src="https://github.com/user-attachments/assets/4249e2e6-730b-445c-898d-0c9030994398" />
+![Vibe Trading Web 监控界面](docs/public/screenshot-web.png)
+
+## 🔧 Agent 内核：zenagent
+
+本项目已从 `pi-py` 迁移到 **[zenagent](https://github.com/encyc/zen-agent)** —— 一个纯 Python、
+零重依赖（仅 `httpx`）、可读可改的 agent kernel。
+
+选它的理由很直接：
+
+- **一个晚上能读完**。六层依赖只向下，`agent/loop.py` 是纯函数式的执行器，
+  `Agent` 只是它上面的状态包装。
+- **没有 vendor lock-in**。`openai-completions` / `anthropic-messages` /
+  `google-generative-ai` / `openai-responses` 四个协议适配器，外加一份带定价和
+  上下文窗口的模型 catalog。
+- **可嵌入**。`Agent(model=..., tools=..., api_key=...)` 加一个 `subscribe` 回调就是全部，
+  不用把它的 CLI、会话、权限层一起拖进来。本项目只用了 kernel 的四层，
+  封装在 [`backend/src/vibe_trading/runtime/`](./backend/src/vibe_trading/runtime/)。
+
+> ⭐ 如果这个内核对你也有用，去给 **[github.com/encyc/zen-agent](https://github.com/encyc/zen-agent)**
+> 点个 star —— 一个人维护的小内核，star 是它被看见的主要方式。
+
+本项目的接入细节与迁移踩坑清单见 [`docs/zenagent_kernel.md`](./docs/zenagent_kernel.md)。
 
 ## ✨ 核心特性
 
@@ -39,7 +60,7 @@
 uv pip install -e .
 ```
 
-依赖 `pi-py-ai` 和 `pi-py-agent-core`（[pi-py](https://github.com/encyc/pi-py) 的 PyPI 包，原生 TS [pi](https://github.com/earendil-works/pi) 的 Python 复刻）会自动从 PyPI 安装。
+依赖 [`zenagent-py`](https://pypi.org/project/zenagent-py/)（纯 Python agent kernel，只依赖 `httpx`）会自动从 PyPI 安装。
 
 ## ⚙️ 配置
 
@@ -54,10 +75,12 @@ cp backend/.env.example backend/.env
 ```bash
 BINANCE_TESTNET_API_KEY=your_key
 BINANCE_TESTNET_API_SECRET=your_secret
-LLM_MODEL=deepseek_v4_flash_free   # 默认模型，可在 llm.yaml 里选其他
+LLM_MODEL=glm_5_3_flash   # 默认模型，可选值见 llm.yaml
 ```
 
-3. 配置LLM（在 `backend/src/vibe_trading/config/llm.yaml`，定义所有可选模型与 API key）
+3. 配置 LLM：复制 `backend/src/vibe_trading/config/llm.yaml.example` 为 `llm.yaml`，
+   在里面选模型（`provider` + `model`），技术参数从 zenagent catalog 自动继承。
+   API key 不写在 yaml 里 —— 放在 `~/.zenagent/settings.json` 或环境变量中。
 
 ## 🚀 使用
 
@@ -96,10 +119,10 @@ vibe-trading/
 │       │   └── config/         # 配置（含 llm.yaml / llm_config.py）
 │       └── pi_logger/         # 日志系统
 ├── docs/                      # 文档
-└── pyproject.toml             # pi-py-ai / pi-py-agent-core 从 PyPI 安装
+└── pyproject.toml             # zenagent-py 从 PyPI 安装
 ```
 
-> `pi_ai`（LLM 抽象层）和 `pi_agent_core`（Agent 框架）不再 vendored 在仓库内，改由 PyPI 包 [`pi-py-ai`](https://pypi.org/project/pi-py-ai/) / [`pi-py-agent-core`](https://pypi.org/project/pi-py-agent-core/) 提供。
+> Agent 运行时由 PyPI 包 [`zenagent-py`](https://pypi.org/project/zenagent-py/) 提供。项目自己的封装在 `src/vibe_trading/runtime/`，是唯一 import `zenagent` 的地方——换内核只需改这个包。
 
 ## 🧪 测试
 
@@ -159,7 +182,7 @@ uv run test_historical.py  # 访问 http://localhost:8000
 
 - [TradeAgents](https://github.com/TauricResearch/TradingAgents) - Agent协作架构
 - [pi](https://github.com/earendil-works/pi) - 原生 TS Agent 框架
-- [pi-py](https://github.com/encyc/pi-py) - pi 的 Python 复刻（本项目通过 PyPI 包 `pi-py-ai` / `pi-py-agent-core` 使用）
+- [zen-agent](https://github.com/encyc/zen-agent) - 纯 Python agent kernel（本项目通过 PyPI 包 `zenagent-py` 使用）
 
 ## ⚠️ 免责声明
 

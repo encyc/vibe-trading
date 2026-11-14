@@ -1,39 +1,39 @@
 """
 LLM 配置管理（应用层）
 
-从 ``vibe_trading/config/llm.yaml`` 加载模型配置，构造 pi-py 的 :class:`pi_ai.Model`。
+从 ``vibe_trading/config/llm.yaml`` 加载模型配置，构造 zenagent 的
+:class:`zenagent.providers.catalog.Model`。
 
 设计说明
 --------
-pi-py 的 ``pi_ai`` 删除了 YAML 配置层（``config.py``）和 ``ModelRouter``，改为代码内
-``register_model()`` + 直接传递 ``Model`` 实例。本项目仍保留 ``llm.yaml`` 作为模型定义的
-单一来源（运维友好、无需改代码即可切换模型），但路由层（``ModelRouter`` /
-``agent_model_mapping``）已移除——它在本项目里长期处于"半失效"状态（没有任何调用点传入
-``agent_role``，映射表从未被读取）。
+``llm.yaml`` 只是"选哪个模型"的清单；模型的技术参数（base_url、compat、
+context_window、max_tokens、定价）从 zenagent 的 catalog 继承：
 
-每个 YAML 条目的字段映射到 pi-py Model：
+    catalog 命中   -> 用 catalog 的 Model，yaml 显式字段覆盖
+    catalog 未命中 -> 用 yaml 的 base_url 造 Model，兼容标志由 sniff_compat
+                      按 host 推断，yaml 显式字段再覆盖
 
-    provider: openai|anthropic   -> Model.api = "openai-completions" | "anthropic-messages"
-    model:    <model_id>         -> Model.id
-    base_url: <url>              -> Model.base_url
-    api_key:  <literal|${ENV}>   -> 不进 Model；由 get_api_key_for(name) 返回，
-                                    通过 AgentOptions(get_api_key=...) 注入
+凭证不进 Model：zenagent 的 ``Agent`` 接收 ``api_key`` 字符串，由
+:func:`get_api_key_from_config` 从 ``~/.zenagent/settings.json`` 的
+``api_keys``（优先）或环境变量（回退）解析，键名取自 catalog 的
+``api_key_env``。
 
-对于 OpenAI 兼容端点（longcat / iflow / deepseek / aliyun / opencode-zen 等），
-统一使用 ``api = "openai-completions"`` + 自定义 ``base_url``。
-
-安全提示：``llm.yaml`` 历史上包含明文 API key（longcat / iflow / glm_4_7 / aliyun_* /
-opencode-zen）。这些 key 已在 git 历史中，轮换需另行处理，不在本次迁移范围内。
+安全提示：``llm.yaml`` 历史上含明文 API key（longcat / iflow / glm_4_7 /
+aliyun_* / opencode-zen），这些已进入 git 历史。迁移后本文件不再保存凭证，
+轮换需要另行处理。
 """
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 import yaml
 
-from pi_ai import Model
+from zenagent.providers.catalog import Model, ProviderConfig, load_catalog
+from zenagent.providers.compat import CompatFlags, sniff_compat
+from zenagent.types import Cost
 
 try:
     from pi_logger import get_logger
@@ -45,12 +45,24 @@ except Exception:  # pragma: no cover - logger 可选
     logger = logging.getLogger("LLMConfig")
 
 
-# YAML provider 名 -> pi-py 注册的 API provider key
-_PROVIDER_TO_API: Dict[str, str] = {
-    "openai": "openai-completions",
-    "anthropic": "anthropic-messages",
-    # google / ollama 等暂无对应 pi-py provider，遇到时按 openai-completions 兼容处理
-}
+# zenagent catalog 只在进程内解析一次（含手写 YAML 子集解析器）
+_CATALOG: Optional[Dict[str, ProviderConfig]] = None
+
+
+def _catalog() -> Dict[str, ProviderConfig]:
+    global _CATALOG
+    if _CATALOG is None:
+        _CATALOG = load_catalog()
+    return _CATALOG
+
+
+def _find_catalog_model(model_id: str) -> Optional[Model]:
+    """按 model id 在 catalog 里找模型（首个匹配胜，与 zenagent 的 find_model 一致）。"""
+    for provider in _catalog().values():
+        for model in provider.models:
+            if model.id == model_id:
+                return model
+    return None
 
 
 def _default_config_path() -> str:
@@ -58,24 +70,22 @@ def _default_config_path() -> str:
     return str(Path(__file__).parent / "llm.yaml")
 
 
-def _resolve_api_key(raw: str, provider: str) -> Optional[str]:
-    """解析 api_key 字段，支持 ``${VAR}`` / ``${VAR:default}`` / 环境变量回退。"""
-    if not raw:
-        # 空值时按 provider 回退到常见环境变量
-        env_fallback = {
-            "openai": "OPENAI_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "google": "GOOGLE_API_KEY",
-        }.get(provider)
-        return os.environ.get(env_fallback) if env_fallback else None
+#: yaml 里 provider 名 -> zenagent 协议适配器 key。
+#: catalog 命中时用 catalog 的 api（那里是按供应商实测过的）；未命中时才看这里。
+_PROVIDER_TO_API: Dict[str, str] = {
+    "openai": "openai-completions",
+    "anthropic": "anthropic-messages",
+    "google": "google-generative-ai",
+}
 
-    # ${VAR} 或 ${VAR:default}
-    if "${" in raw:
-        inner = raw.split("${", 1)[1].split("}", 1)[0]
-        var_name, _, default = inner.partition(":")
-        return os.environ.get(var_name, default)
 
-    return raw
+def _resolve_env_ref(raw: str) -> Optional[str]:
+    """解析 ``${VAR}`` / ``${VAR:default}`` 形式的显式凭证引用（向后兼容）。"""
+    if "${" not in raw:
+        return raw or None
+    inner = raw.split("${", 1)[1].split("}", 1)[0]
+    var_name, _, default = inner.partition(":")
+    return os.environ.get(var_name, default) or None
 
 
 class LLMConfig:
@@ -97,7 +107,7 @@ class LLMConfig:
         logger.debug(f"可用模型: {list(self._config.get('llms', {}).keys())}")
 
     def get_current_name(self) -> str:
-        return self._config.get("use_llm", "glm_4_7")
+        return self._config.get("use_llm", "glm_5_3_flash")
 
     def get_config(self, name: Optional[str] = None) -> Dict[str, Any]:
         name = name or self.get_current_name()
@@ -109,30 +119,95 @@ class LLMConfig:
         return llms[name]
 
     def get_model(self, name: Optional[str] = None) -> Model:
-        """根据配置名构造 pi-py :class:`Model`。"""
+        """根据配置名构造 zenagent :class:`Model`。
+
+        优先级：yaml 显式字段 > catalog 命中值 > sniff_compat 推断。
+        """
         name = name or self.get_current_name()
         cfg = self.get_config(name)
 
-        provider = cfg.get("provider", "openai")
-        api = _PROVIDER_TO_API.get(provider, "openai-completions")
-        model_id = cfg.get("model", "gpt-4o")
-        base_url = cfg.get("base_url", "")
+        model_id = cfg.get("model")
+        if not model_id:
+            raise ValueError(f"LLM 配置 {name} 缺少 model 字段")
 
-        return Model(
-            id=model_id,
-            name=cfg.get("description", model_id) or model_id,
-            api=api,
-            provider=provider,
-            base_url=base_url,
-            input=["text"],
-            context_window=0,
-            max_tokens=0,
-        )
+        # 1. catalog 命中：直接复用（带上供应商的 compat / 上下文窗口 / 定价）
+        base = _find_catalog_model(model_id)
+
+        # 2. 未命中：用 yaml 的 base_url 造一个，compat 按 host 推断
+        if base is None:
+            base_url = cfg.get("base_url", "")
+            if not base_url:
+                raise ValueError(
+                    f"LLM 配置 {name} 的 model={model_id!r} 不在 zenagent catalog 中，"
+                    f"必须显式提供 base_url"
+                )
+            base = Model(
+                id=model_id,
+                provider=cfg.get("provider", "custom"),
+                api=cfg.get(
+                    "api",
+                    _PROVIDER_TO_API.get(cfg.get("provider", ""), "openai-completions"),
+                ),
+                base_url=base_url,
+                context_window=0,
+                max_tokens=0,
+                reasoning=False,
+                cost=Cost(),
+                compat=sniff_compat(base_url),
+            )
+
+        # 3. yaml 显式字段覆盖 catalog
+        overrides: Dict[str, Any] = {}
+        if cfg.get("base_url"):
+            overrides["base_url"] = cfg["base_url"]
+        if cfg.get("context_window") is not None:
+            overrides["context_window"] = int(cfg["context_window"])
+        if cfg.get("max_tokens") is not None:
+            overrides["max_tokens"] = int(cfg["max_tokens"])
+        if cfg.get("compat"):
+            known = {k: v for k, v in cfg["compat"].items()
+                     if k in CompatFlags.__dataclass_fields__}
+            if known:
+                overrides["compat"] = replace(base.compat, **known)
+        return replace(base, **overrides) if overrides else base
+
+    def get_api_key_env(self, name: Optional[str] = None) -> Optional[str]:
+        """该配置对应的凭证环境变量名（catalog 的 api_key_env）。"""
+        cfg = self.get_config(name)
+        base = _find_catalog_model(cfg.get("model", ""))
+        if base is not None:
+            provider = _catalog().get(base.provider)
+            if provider is not None:
+                return provider.api_key_env
+        return cfg.get("api_key_env")
 
     def get_api_key(self, name: Optional[str] = None) -> Optional[str]:
-        """返回配置对应的 api_key（不放入 Model）。"""
+        """返回配置对应的 api_key。
+
+        顺序：yaml 显式 ``api_key``（支持 ``${VAR}``）> zenagent settings 的
+        ``api_keys`` > 环境变量。
+        """
         cfg = self.get_config(name)
-        return _resolve_api_key(cfg.get("api_key", ""), cfg.get("provider", "openai"))
+        explicit = cfg.get("api_key")
+        if explicit:
+            return _resolve_env_ref(str(explicit))
+
+        env_name = self.get_api_key_env(name)
+        if not env_name:
+            return None
+        try:
+            from zenagent.settings import get_api_key
+
+            # zenagent 的 settings 存储优先于环境变量
+            return get_api_key(env_name)
+        except Exception:  # pragma: no cover - zenagent 异常时的回退
+            value = os.environ.get(env_name, "")
+            return value.strip() or None
+
+    def get_temperature(self, name: Optional[str] = None) -> Optional[float]:
+        """该配置的采样温度（None = 用服务商默认）。"""
+        value = self.get_config(name).get("temperature")
+        return float(value) if value is not None else None
 
     def list_configs(self) -> Dict[str, str]:
         llms = self._config.get("llms", {})
@@ -144,7 +219,7 @@ class LLMConfig:
 
 
 # =============================================================================
-# 全局单例 + 便捷函数（保持原 pi_ai.config 的公开 API）
+# 全局单例 + 便捷函数
 # =============================================================================
 
 _default_config: Optional[LLMConfig] = None
@@ -159,7 +234,7 @@ def get_llm_config(config_path: Optional[str] = None) -> LLMConfig:
 
 
 def get_model_from_config(name: Optional[str] = None) -> Model:
-    """从配置构造 Model。与原 ``pi_ai.config.get_model_from_config`` 同名同义。"""
+    """从配置构造 zenagent Model。"""
     return get_llm_config().get_model(name)
 
 
@@ -169,16 +244,16 @@ def get_api_key_from_config(name: Optional[str] = None) -> Optional[str]:
 
 
 def make_get_api_key() -> Callable[[str], Optional[str]]:
-    """构造一个 ``AgentOptions(get_api_key=...)`` 可用的回调。
+    """构造一个按 provider 名取 api_key 的回调。
 
-    回调签名 ``(provider: str) -> str | None``：根据 provider 名查当前默认模型的 key。
-    用于把 yaml 里的 key 注入到 pi-py 的 stream 调用链。
+    回调签名 ``(provider: str) -> str | None``。当前实现忽略传入的 provider，
+    统一返回默认配置的 key —— 与迁移前一致，因为 12 个 agent 都跑同一个模型。
+    将来要按 provider 分派时改这里。
     """
     cfg = get_llm_config()
     current = cfg.get_current_name()
 
     def _get_api_key(provider: str) -> Optional[str]:
-        # provider 来自 Model.provider；直接用当前配置的 key
         return cfg.get_api_key(current)
 
     return _get_api_key

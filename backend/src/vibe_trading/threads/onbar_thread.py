@@ -15,13 +15,29 @@ from vibe_trading.coordinator.trading_coordinator import (
 from vibe_trading.coordinator.thread_manager import ThreadManager, get_thread_manager
 from vibe_trading.agents.messaging import get_message_broker, MessageType
 from vibe_trading.websocket_manager import get_websocket_manager
-from vibe_trading.data_sources.binance_client import BinanceClient, KlineInterval
+from vibe_trading.data_sources.binance_client import BinanceClient, Kline, KlineInterval
 from vibe_trading.config.binance_config import BinanceConfig, BinanceEnvironment
 from vibe_trading.execution.order_executor import OrderExecutor
 from pi_logger import get_logger, info
 
 logger = logging.getLogger(__name__)
 log = get_logger("OnBarThread")
+
+
+def _kline_data_environment() -> "BinanceEnvironment":
+    """选行情端点：mainnet 被网络/代理挡住时用 testnet 的行情源。
+
+    端点本身不涉及资金，paper 模式下用哪边只是"能不能连上"的问题。
+    可用 BINANCE_KLINE_ENV=testnet|mainnet 显式指定。
+    """
+    import os
+
+    choice = os.getenv("BINANCE_KLINE_ENV", "").strip().lower()
+    if choice == "testnet":
+        return BinanceEnvironment.TESTNET
+    if choice == "mainnet":
+        return BinanceEnvironment.MAINNET
+    return BinanceEnvironment.MAINNET
 
 
 class OnBarThread:
@@ -64,6 +80,8 @@ class OnBarThread:
         self._decisions_made = 0
         self._emergency_stops = 0
         self._last_bar_time: Optional[datetime] = None
+        #: 最近一次已处理 bar 的 open_time（毫秒），用于 WS / REST 双通道去重
+        self._last_handled_open_time: Optional[int] = None
         
         logger.info(f"OnBarThread initialized for {symbol} ({interval})")
     
@@ -145,7 +163,7 @@ class OnBarThread:
             info(f"获取历史K线: {self.symbol} {self.interval} ({limit}根)", tag="OnBar")
 
             # 使用实盘配置（获取真实市场数据，不需要API密钥）
-            config = BinanceConfig(environment=BinanceEnvironment.MAINNET)
+            config = BinanceConfig(environment=_kline_data_environment())
             client = BinanceClient(config)
 
             # 获取 K线 interval 枚举
@@ -245,9 +263,19 @@ class OnBarThread:
             # Start WebSocket
             await ws_manager.start()
 
-            # Keep running while thread is active
-            while self._running:
-                await asyncio.sleep(1)
+            # Keep running while thread is active.
+            # WebSocket 可能在订阅后立刻失败（代理/网络/端点问题），所以这里并行跑一个
+            # REST 轮询兜底：WS 收不到数据时仍然按 bar 收盘推进。
+            poll_task = asyncio.create_task(self._rest_poll_loop())
+            try:
+                while self._running:
+                    await asyncio.sleep(1)
+            finally:
+                poll_task.cancel()
+                try:
+                    await poll_task
+                except asyncio.CancelledError:
+                    pass
 
         except asyncio.CancelledError:
             logger.info("OnBarThread cancelled")
@@ -257,6 +285,60 @@ class OnBarThread:
             # Stop WebSocket
             if 'ws_manager' in locals():
                 await ws_manager.stop()
+
+    async def _rest_poll_loop(self) -> None:
+        """REST 轮询兜底：WS 不可用时用已收盘的 K 线推进决策流程。
+
+        只在检测到 WS 长时间没有新 bar 时才启动工作，避免与 WS 重复处理同一根 bar。
+        每根 bar 只处理一次（按 open_time 去重）。
+        """
+        interval_seconds = {
+            "1m": 60, "3m": 180, "5m": 300, "15m": 900,
+            "30m": 1800, "1h": 3600, "4h": 14400, "1d": 86400,
+        }.get(self.interval, 1800)
+        poll_every = min(interval_seconds, 30)
+        seen_open_time = self._last_handled_open_time
+
+        config = BinanceConfig(environment=_kline_data_environment())
+        client = BinanceClient(config)
+        interval_enum = {
+            "1m": KlineInterval.MINUTE_1,
+            "5m": KlineInterval.MINUTE_5,
+            "15m": KlineInterval.MINUTE_15,
+            "30m": KlineInterval.MINUTE_30,
+            "1h": KlineInterval.HOUR_1,
+            "4h": KlineInterval.HOUR_4,
+            "1d": KlineInterval.DAY_1,
+        }.get(self.interval, KlineInterval.MINUTE_30)
+
+        info(f"REST 轮询兜底已启动（每 {poll_every}s 检查一次已收盘 bar）", tag="OnBar")
+
+        while self._running:
+            await asyncio.sleep(poll_every)
+            try:
+                bars = await client.rest.get_klines(
+                    symbol=self.symbol, interval=interval_enum, limit=2
+                )
+                if not bars:
+                    continue
+                # 倒数第二根是刚收盘的那根（最后一根还在走）
+                last_closed = bars[-2] if len(bars) >= 2 else None
+                if last_closed is None:
+                    continue
+                open_time = int(last_closed[0])
+                if seen_open_time is not None and open_time <= seen_open_time:
+                    continue
+                seen_open_time = open_time
+                kline = Kline.from_rest(last_closed)
+                kline.symbol = self.symbol
+                kline.interval = self.interval
+                info(f"REST 取到已收盘 bar {kline.open_datetime}", tag="OnBar")
+                await self._process_kline(kline)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # 网络抖动不应终止轮询
+                logger.warning(f"REST 轮询失败（继续重试）: {type(exc).__name__}: {exc}")
+
     
     async def _process_kline(self, kline) -> None:
         """
@@ -265,6 +347,16 @@ class OnBarThread:
         Args:
             kline: K-line data
         """
+        # WS 与 REST 双通道可能送来同一根 bar：按 open_time 去重，只处理一次
+        open_time_ms = int(kline.open_time)
+        if (
+            self._last_handled_open_time is not None
+            and open_time_ms <= self._last_handled_open_time
+        ):
+            logger.debug(f"跳过重复 bar open_time={open_time_ms}")
+            return
+        self._last_handled_open_time = open_time_ms
+
         self._total_bars += 1
         self._last_bar_time = datetime.now()
 

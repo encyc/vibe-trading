@@ -1,77 +1,35 @@
 """
-Pi Agent Core Tools 包装器
+交易工具定义：把业务函数组装成 agent 可调用的工具。
 
-将现有的tools函数包装成pi_agent_core框架的AgentTool格式（pi-py v0.83 Protocol）。
+本项目沿用 (Pydantic 参数类 + 异步 execute 函数) 的写法，由
+:func:`vibe_trading.runtime.make_tool` 在运行时转换成 zenagent 的
+``AgentTool``。24 个工具的业务逻辑与框架无关。
 
-pi-py 的 ``AgentTool`` 是一个 Protocol：类需提供 ``name`` / ``description`` /
-``parameters``(JSON Schema dict) / ``label`` / ``execution_mode`` 以及
-``async execute(self, tool_call_id, params, cancel_event, on_update) -> AgentToolResult``。
+``execute`` 的形状约定（与迁移前一致）：
 
-本项目沿用既有的 (Pydantic 参数类, 异步 execute 函数) 写法，通过下方 ``_PyTool``
-适配器在运行时转换为 pi-py Protocol 工具。这样 24 个工具的业务逻辑零改动。
+    async def execute(name, args: <Pydantic>, extra, callback) -> ToolResultAgent
+
+``args`` 已由 Pydantic 校验并填好默认值。
 """
 import asyncio
 import logging
 from typing import Any, Awaitable, Callable, Optional, Type
 from pydantic import BaseModel, Field
 
-from pi_agent_core import AgentToolResult
-from pi_ai import TextContent
+from zenagent.agent.loop import ToolResultAgent
+from zenagent.types import TextContent
 
+from vibe_trading.runtime import make_tool
 from vibe_trading.tools import market_data_tools, technical_tools, fundamental_tools, sentiment_tools
 
 logger = logging.getLogger(__name__)
 
-
-class _PyTool:
-    """适配器：把 (Pydantic 参数类 + 异步 execute 函数) 包装为 pi-py AgentTool Protocol。
-
-    pi-py 在 agent_loop 中会把 LLM 返回的 dict 参数传给 ``execute`` 的 ``params``。
-    这里先用 Pydantic 类校验/解析，再委托给原 execute 函数（其签名仍为
-    ``(name, args: <Pydantic>, extra, callback) -> AgentToolResult``）。
-    """
-
-    def __init__(
-        self,
-        *,
-        name: str,
-        description: str,
-        parameters: Type[BaseModel],
-        execute: Callable[..., Awaitable[AgentToolResult]],
-        label: str = "",
-    ) -> None:
-        self.name = name
-        self.label = label or name
-        self.description = description
-        # JSON Schema dict（pi-py 期望 dict，不是 Pydantic 类）
-        self.parameters = parameters.model_json_schema()
-        self.execution_mode = None
-        self._params_cls = parameters
-        self._execute_fn = execute
-
-    async def execute(
-        self,
-        tool_call_id: str,
-        params: Any,
-        cancel_event: Optional[asyncio.Event] = None,
-        on_update: Optional[Callable[[AgentToolResult], None]] = None,
-    ) -> AgentToolResult:
-        # params 来自 LLM（dict）；用 Pydantic 类做校验与默认值填充
-        if isinstance(params, dict):
-            args = self._params_cls(**params)
-        elif isinstance(params, self._params_cls):
-            args = params
-        else:
-            # 兜底：尝试强制构造，让 Pydantic 报错
-            args = self._params_cls.model_validate(params)
-        # 原 execute 签名：(name, args, extra, callback)
-        return await self._execute_fn(self.name, args, None, on_update)
+# 兼容别名：调用点仍写 AgentToolResult / AgentTool
+AgentToolResult = ToolResultAgent
 
 
-# 兼容别名：调用点仍可写 AgentTool(...)，实际构造 _PyTool。
-# （pi-py 的 AgentTool 是 Protocol，不能直接实例化。）
-AgentTool = _PyTool
-
+# 工具构造统一走 runtime.make_tool；这里保留 AgentTool 名字是为了调用点不用改。
+AgentTool = make_tool
 
 
 # =============================================================================
@@ -803,6 +761,10 @@ def create_submit_trade_order_tool(tool_context: Any) -> AgentTool:
         ),
         parameters=SubmitTradeOrderParams,
         execute=execute_submit_trade_order,
+        approval="exec",
+        # 下单不能与其他工具并发：zenagent 的 is_exclusive 会把 sequential 调用
+        # 排到同批其他工具之后单独执行。
+        execution_mode="sequential",
     )
 
 

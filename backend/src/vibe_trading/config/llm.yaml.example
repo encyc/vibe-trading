@@ -1,56 +1,67 @@
-# LLM 配置文件
-# 用于管理多个 LLM 模型配置
+# LLM 配置文件示例
+#
+# 复制为 llm.yaml 后按需修改（llm.yaml 已被 .gitignore 忽略，不会提交）。
+#
+# 每个条目映射到 zenagent 的 Model。`provider` 是 zenagent catalog 里的
+# provider id（见 zenagent/catalog.yaml），base_url / api_key_env / adapter /
+# compat / context_window 都从 catalog 继承，所以通常只需要写 model。
+#
+# 凭证来源（本文件不写明文 key）：
+#   1. ~/.zenagent/settings.json 的 "api_keys"（优先）
+#   2. 环境变量（回退）
+# 键名取自 catalog 的 api_key_env，如 OPENAI_API_KEY / ZAI_CODING_CN_API_KEY。
+#
+# 条目字段：
+#   provider       catalog provider id（必需）
+#   model          catalog model id（必需）
+#   base_url       覆盖 catalog 的 base_url（可选，catalog 未收录时必填）
+#   context_window 覆盖 catalog 的上下文窗口（可选）
+#   max_tokens     覆盖 catalog 的输出上限（可选）
+#   temperature    该 agent 的采样温度（可选；缺省用服务商默认）
+#   description    人类可读说明（可选）
 
-# 当前使用的 LLM 配置名称
-use_llm: openai_gpt4o
+# 当前使用的 LLM 配置名称（可用 LLM_MODEL 环境变量覆盖）
+use_llm: openai_gpt4o_mini
 
-# LLM 配置列表
+
 llms:
 
-  # OpenAI GPT-4o
+  # ========== OpenAI ==========
+  openai_gpt4o_mini:
+    provider: openai
+    model: gpt-4o-mini
+    description: "OpenAI GPT-4o mini"
+
   openai_gpt4o:
     provider: openai
-    api_key: ${OPENAI_API_KEY:}
-    base_url: https://api.openai.com/v1
     model: gpt-4o
     description: "OpenAI GPT-4o"
 
-  # OpenAI GPT-4o-mini
-  openai_gpt4o_mini:
-    provider: openai
-    api_key: ${OPENAI_API_KEY:}
-    base_url: https://api.openai.com/v1
-    model: gpt-4o-mini
-    description: "OpenAI GPT-4o-mini"
+  # ========== DeepSeek（按量计费）==========
+  deepseek_flash:
+    provider: deepseek
+    model: deepseek-flash
+    description: "DeepSeek Flash（1M 上下文）"
 
-  # Anthropic Claude Sonnet 4
-  claude_sonnet4:
-    provider: anthropic
-    api_key: ${ANTHROPIC_API_KEY:}
-    base_url: https://api.anthropic.com/v1
-    model: claude-sonnet-4-20250514
-    description: "Anthropic Claude Sonnet 4"
+  # ========== Z.AI Coding（包月 token plan）==========
+  glm_5_3_flash:
+    provider: zai-coding-cn
+    model: glm-5.3-flash
+    description: "智谱 GLM-5.3-Flash（zai coding plan）"
 
-  # Google Gemini
-  gemini_pro:
-    provider: google
-    api_key: ${GOOGLE_API_KEY:}
-    base_url: https://generativelanguage.googleapis.com/v1beta
-    model: gemini-1.5-pro
-    description: "Google Gemini 1.5 Pro"
+  # ========== OpenCode Go（订阅制网关）==========
+  opencode_deepseek_v4_pro:
+    provider: opencode-go
+    model: deepseek-v4-pro
+    description: "DeepSeek V4 Pro 经 OpenCode Go"
 
-  # 本地 Ollama
-  ollama:
-    provider: openai
-    api_key: ollama
-    base_url: http://localhost:11434/v1
-    model: llama3:latest
-    description: "本地 Ollama Llama3"
-
-  # DeepSeek
-  deepseek:
-    provider: openai
-    api_key: ${DEEPSEEK_API_KEY:}
-    base_url: https://api.deepseek.com/v1
-    model: deepseek-chat
-    description: "DeepSeek Chat"
+  # ========== 自建 / 代理端点（不在 catalog 里）==========
+  # 必须显式给 base_url；api 按 provider 自动推断
+  # （anthropic -> anthropic-messages，google -> google-generative-ai，
+  #   其余 -> openai-completions），也可用 api 字段强制指定。
+  #
+  # local_ollama:
+  #   provider: openai
+  #   model: llama3
+  #   base_url: http://localhost:11434/v1
+  #   description: "本地 Ollama"

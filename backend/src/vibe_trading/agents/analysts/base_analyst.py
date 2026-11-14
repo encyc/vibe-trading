@@ -5,8 +5,7 @@
 """
 from typing import Dict, Optional
 
-from pi_agent_core import Agent, AgentOptions
-from vibe_trading.config.llm_config import get_model_from_config, make_get_api_key
+from vibe_trading.runtime import TradingAgent
 from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
@@ -36,7 +35,7 @@ class BaseAnalystAgent:
             raise ValueError(f"Unsupported analyst role: {config.role}")
 
         self.config = config
-        self._agent: Optional[Agent] = None
+        self._agent: Optional[TradingAgent] = None
         self._tool_context: Optional[ToolContext] = None
 
     async def initialize(self, tool_context: ToolContext) -> None:
@@ -66,15 +65,10 @@ class BaseAnalystAgent:
         await self._agent.prompt(prompt)
 
         # 获取响应
-        messages = self._agent.state.messages
+        messages = self._agent.messages
         if messages:
-            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-            if last_assistant:
-                content = last_assistant[-1].content
-                if isinstance(content, list):
-                    response = "".join(getattr(c, "text", str(c)) for c in content)
-                else:
-                    response = str(content)
+            response = self._agent.last_assistant_text()
+            if response:
                 
                 # 记录分析结果到日志
                 logger.info(f"{self.config.name} Analysis: {response}", tag="Analyst")
@@ -86,7 +80,7 @@ class BaseAnalystAgent:
     async def analyze_with_tools(self) -> str:
         """使用工具执行分析（不预取数据，让Agent自己调用工具）
 
-        这是让Agent真正使用pi_agent_core工具框架的方法。
+        这是让 Agent 真正使用工具框架的方法。
         Agent会根据需要调用get_current_price、get_fear_and_greed_index等工具。
         """
         if not self._agent:
@@ -150,14 +144,9 @@ class BaseAnalystAgent:
         await self._agent.prompt(prompt)
 
         # 获取响应
-        messages = self._agent.state.messages
-        if messages:
-            last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-            if last_assistant:
-                content = last_assistant[-1].content
-                if isinstance(content, list):
-                    return "".join(getattr(c, "text", str(c)) for c in content)
-                return str(content)
+        text = self._agent.last_assistant_text()
+        if text:
+            return text
 
         return "Analysis failed - no response from agent"
 

@@ -13,8 +13,7 @@ from typing import Any, Dict, List, Optional
 from pi_logger import get_logger
 
 from vibe_trading.memory.memory import PersistentMemory
-from pi_ai import stream_simple, Context, UserMessage, TextContent, SimpleStreamOptions
-from vibe_trading.config.llm_config import get_api_key_from_config
+from vibe_trading.runtime import one_shot
 
 logger = get_logger(__name__)
 
@@ -366,24 +365,7 @@ class TradeReflector:
     ) -> Dict[str, Any]:
         """使用LLM生成反思"""
         try:
-            # pi-py: stream_simple(model, Context, SimpleStreamOptions)
-            context = Context(
-                system_prompt="你是交易反思专家。",
-                messages=[UserMessage(content=prompt)],
-            )
-            options = SimpleStreamOptions(api_key=get_api_key_from_config())
-            response = stream_simple(self.llm_model, context, options)
-
-            # 等待响应完成 -> AssistantMessage
-            message = await response.result()
-
-            # message.content 是内容块列表（TextContent/...），拼接文本
-            text_parts = []
-            for block in getattr(message, "content", []):
-                text = getattr(block, "text", None)
-                if text:
-                    text_parts.append(text)
-            content = "\n".join(text_parts)
+            content = await one_shot("你是交易反思专家。", prompt, role="reflection")
 
             # 解析JSON（简化版，实际应该用json.loads）
             return self._parse_reflection_content(content)

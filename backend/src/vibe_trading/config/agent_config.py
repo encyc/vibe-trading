@@ -41,7 +41,11 @@ class AgentConfig:
     enabled: bool = True
     model: Optional[str] = None  # 覆盖默认模型
     temperature: float = 0.7
-    max_tokens: int = 2000
+    #: 输出上限。None = 用服务商的默认/模型上限。
+    #: 迁移到 zenagent 之前这个字段从未到达 LLM（temperature 也是），所以历史值
+    #: 2000 从未被验证过；直接开始生效会截断长的分析报告。留 None 保持原行为，
+    #: 需要收紧的 agent 再显式设置。
+    max_tokens: Optional[int] = None
 
 
 @dataclass

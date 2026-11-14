@@ -8,8 +8,7 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
-from pi_agent_core import Agent, AgentOptions
-from vibe_trading.config.llm_config import get_model_from_config, make_get_api_key
+from vibe_trading.runtime import TradingAgent
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
 from vibe_trading.config.prompts import TRADER_PROMPT
@@ -67,7 +66,7 @@ class EmergencyDecisionAgent:
         
         self.config = config
         self._system_prompt = self._get_emergency_prompt()
-        self._agent: Optional[Agent] = None
+        self._agent: Optional[TradingAgent] = None
         self._tool_context: Optional[ToolContext] = None
     
     def _get_emergency_prompt(self) -> str:
@@ -114,19 +113,11 @@ Provide your decision in a clear, structured format."""
         """
         self._tool_context = tool_context
         
-        # Get model
-        model = get_model_from_config(self.config.model)
-
-        # Create agent with emergency prompt
-        agent_options = AgentOptions(
-            initial_state={
-                "system_prompt": self._system_prompt,
-                "model": model,
-            },
-            get_api_key=make_get_api_key(),
+        self._agent = TradingAgent(
+            role="emergency_decision",
+            system_prompt=self._system_prompt,
+            tools=[],
         )
-        
-        self._agent = Agent(agent_options)
         logger.info("EmergencyDecisionAgent initialized")
     
     async def emergency_decide(

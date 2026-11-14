@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from pi_agent_core import Agent
+from vibe_trading.runtime import TradingAgent
 from pi_logger import get_logger
 
 from vibe_trading.agents.messaging import AgentMessage, MessageType
@@ -30,7 +30,7 @@ class SubagentHandle:
     def __init__(
         self,
         agent_id: str,
-        agent: Agent,
+        agent: TradingAgent,
         channel: MessageChannel,
         config: SubagentConfig,
         symbol: str = "BTCUSDT",

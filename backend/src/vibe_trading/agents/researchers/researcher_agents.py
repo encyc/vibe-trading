@@ -6,8 +6,7 @@
 import asyncio
 from typing import Dict, List, Optional
 
-from pi_agent_core import Agent, AgentOptions
-from vibe_trading.config.llm_config import get_model_from_config, make_get_api_key
+from vibe_trading.runtime import TradingAgent
 from pi_logger import get_logger
 
 from vibe_trading.config.agent_config import AgentConfig, AgentRole
@@ -38,7 +37,7 @@ class ResearcherAgent:
     def __init__(self, config: AgentConfig, system_prompt: str):
         self.config = config
         self._system_prompt = system_prompt
-        self._agent: Optional[Agent] = None
+        self._agent: Optional[TradingAgent] = None
         self._tool_context: Optional[ToolContext] = None
 
         # 添加辩论分析工具
@@ -98,15 +97,10 @@ class ResearcherAgent:
             await self._agent.prompt(prompt)
 
             # 获取响应
-            messages = self._agent.state.messages
+            messages = self._agent.messages
             if messages:
-                last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-                if last_assistant:
-                    content = last_assistant[-1].content
-                    if isinstance(content, list):
-                        response = "".join(getattr(c, "text", str(c)) for c in content)
-                    else:
-                        response = str(content)
+                response = self._agent.last_assistant_text()
+                if response:
 
                     # 提取论点
                     if extract_arguments:
@@ -219,7 +213,7 @@ class ResearchManagerAgent:
             role=AgentRole.RESEARCH_MANAGER,
             temperature=0.5,
         )
-        self._agent: Optional[Agent] = None
+        self._agent: Optional[TradingAgent] = None
         self._tool_context: Optional[ToolContext] = None
 
         # 添加辩论评估和建议引擎
@@ -300,16 +294,7 @@ class ResearchManagerAgent:
             await self._agent.prompt(prompt)
 
             # 获取决策文本
-            decision_text = ""
-            messages = self._agent.state.messages
-            if messages:
-                last_assistant = [m for m in messages if getattr(m, "role", None) == "assistant"]
-                if last_assistant:
-                    content = last_assistant[-1].content
-                    if isinstance(content, list):
-                        decision_text = "".join(getattr(c, "text", str(c)) for c in content)
-                    else:
-                        decision_text = str(content)
+            decision_text = self._agent.last_assistant_text()
 
             # 4. 生成分析摘要
             analysis_summary = self._generate_analysis_summary(scorecard, recommendation)
